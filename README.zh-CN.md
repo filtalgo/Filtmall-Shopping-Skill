@@ -2,18 +2,28 @@
 
 [English README](README.md)
 
-Filtmall Shopping Skill 是面向 Filtalgo/Filtmall 电商平台的智能体购物技能包。它把轻量级 Node.js CLI、OAuth 授权流程和 Agent Tool Gateway 调用打包在一个目录里，可以发布到 Skill 市场，也可以被智能体直接使用。
+**公司官网：** [https://www.filtalgo.com/](https://www.filtalgo.com/)
 
-它的目标很明确：让智能体在不直接访问内部 service API 的前提下，帮助用户完成商品搜索、商品对比、购物车管理、收货地址管理、创建结算单、生成钱包支付链接，并在用户完成浏览器支付后继续查询订单、物流、取消、退款和售后状态。
+Filtmall Shopping Skill 是面向开发者、智能体使用者和早期体验用户的 AI 购物技能包。它把轻量级 Node.js CLI 和买家授权流程打包成一个可直接使用的 skill 目录，让智能体能够帮助用户搜索商品、对比商品、加入购物车、创建结算单、打开买家支付页，并在支付后继续查询订单状态。
 
-## 亮点
+这个仓库适合公开演示和快速体验。你可以把它安装到支持 Skill 的智能体环境中，让智能体真实体验一次从“想买什么”到“生成支付链接”的购物流程。
 
-- 面向智能体设计的完整购物流程：搜索、加购、结算、支付跳转、查单。
-- 通过 buyer 前端完成 OAuth 登录和授权，CLI 只负责本地回调与 token 管理。
-- 只调用 protocol-adapter 的 Agent Tool Gateway，不暴露内部 service API。
-- 打包后的 skill 内置 CLI 运行文件，只需要 Node.js 18+，不需要额外 npm install。
-- 当前远程测试商品目录包含约二十多款官方测试商品，覆盖沐浴露、护肤、护手、洗发护发等个人护理品类。
-- 支持订单查询、物流查询、地址增删改查、未支付订单取消、已支付未发货整单退款申请，以及 `RETURN_MONEY` / `RETURN_GOODS` 售后申请。
+## 你可以体验什么
+
+- 使用中文自然关键词搜索商品，例如 `沐浴露`、`洗发露`，或者品牌和商品片段。
+- 让智能体辅助完成加购、结算和支付跳转。
+- 通过浏览器完成买家登录授权和钱包支付。
+- 查询历史订单、订单详情、物流状态，管理收货地址。
+- 体验取消订单、退款申请和售后申请等交易后流程。
+- 打包后的 CLI 运行文件只需要 Node.js 18+，不需要额外 npm install。
+- 当前远程测试商品目录包含美妆个护相关商品，包括沐浴露、护肤、护手、洗发护发等品类。
+
+## 适合谁使用
+
+- 想体验 AI 购物助手的开发者。
+- 正在评估智能体电商能力的团队。
+- 想录制或演示真实购物流程的 Agent 平台用户。
+- 想提前了解 Filtalgo / Filtmall 生态的社区用户和合作伙伴。
 
 ## 目录结构
 
@@ -27,6 +37,8 @@ agents/openai.yaml        # Skill 展示元信息
 ```
 
 ## 快速开始
+
+前置条件：Node.js 18 或更高版本。
 
 ```bash
 node scripts/filtalgo.js auth login
@@ -51,29 +63,33 @@ node scripts/filtalgo.js order get <order_sn> --include-items true --json
 node scripts/filtalgo.js logistics get <order_sn> --json
 ```
 
-## 为什么需要这个 Skill
+## 推荐体验 Prompt
 
-当前很多公网智能体运行环境并没有完整的买家侧 OAuth 客户端、结算运行时和支付跳转能力。这个 skill 用 CLI 补齐这条链路：
+安装 skill 后，可以让智能体尝试：
 
-1. CLI 打开 Filtalgo buyer 授权页。
-2. 用户登录并明确授权能力范围。
-3. CLI 在本地保存 OAuth token。
-4. 智能体通过 CLI 调用 protocol-adapter Agent Tool Gateway。
-5. 支付仍由用户在浏览器收银台中完成。
+> 我想买一款性价比高的沐浴露，请帮我在 Filtmall 上搜索、对比几个选项，确认后加入购物车并生成支付链接。
 
-这样既能让智能体真正完成购物辅助，又能保持边界清晰：智能体不能直接访问内部 service API。
+智能体应该使用本 skill 内置 CLI，展示真实商品结果，在需要确认时询问用户，并最终返回浏览器支付链接。
 
-## 安全说明
+## 为什么这个 Demo 值得体验
+
+很多智能体购物 Demo 只停留在“推荐商品”。Filtmall Shopping Skill 更进一步：它可以让智能体完成从推荐到加购、结算、支付跳转、查单的连续流程，更适合验证真实 Agent Commerce 场景。
+
+用户仍然掌控登录和支付，智能体负责处理重复的购物操作。
+
+## 关于 Filtalgo
+
+[Filtalgo](https://www.filtalgo.com/) 正在建设面向 AI 时代的电商与智能交易基础能力，探索更智能的商品发现、辅助购物和交易流程。Filtmall Shopping Skill 是这一方向的早期公开体验项目。
+
+访问公司官网：[https://www.filtalgo.com/](https://www.filtalgo.com/)
+
+## 使用注意
 
 - 不要在面向用户的输出中打印 access token、refresh token 或 client secret。
-- 当前内置 OAuth client 用于 remote test 环境。
-- CLI 只会把真实 access token 放在 HTTP `Authorization` header 中。
-- 智能体不应直接调用 service、UCP 或 ACP 接口；请统一通过 `scripts/filtalgo.js` 访问 Agent Tool Gateway。
+- 在结算、取消订单、退款或售后申请前，应向用户确认。
+- 商品价格、SKU、订单号和支付链接应以 CLI 返回为准，不要自行编造。
+- 如果搜索没有结果，可以先尝试更短的中文关键词；仍无结果时，再说明当前测试商品目录暂无匹配商品。
 
 ## 当前状态
 
-当前版本属于内测 / MVP 阶段，适用于受控演示、远程开发环境联调和智能体购物流程验证。正式公网用户版还会继续完善商品范围、错误提示、授权体验和售后链路。
-
-## 品牌说明
-
-Filtmall Shopping Skill 属于 Filtalgo 生态的一部分，用于探索真实商品目录搜索、购物车操作、买家授权结算和交易后服务等 Agent Commerce 场景。
+当前版本属于公开预览 / MVP 阶段，适合 Demo、开发者体验和智能体购物流程验证。后续会继续扩展商品范围、优化智能体体验，并完善更多交易后服务能力。

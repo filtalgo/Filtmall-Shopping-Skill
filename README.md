@@ -2,18 +2,27 @@
 
 [中文说明](README.zh-CN.md)
 
-Filtmall Shopping Skill is an agent-ready shopping skill for the Filtalgo/Filtmall commerce platform. It packages a lightweight Node.js CLI, OAuth authorization flow, and Agent Tool Gateway calls into a single folder that can be published to skill marketplaces or used directly by AI agents.
+**Official website:** [https://www.filtalgo.com/](https://www.filtalgo.com/)
 
-The goal is simple: let an agent help a buyer search products, compare options, manage cart and addresses, create checkout, hand off wallet payment to the buyer page, and then query orders, logistics, cancellation, refund, and after-sale state without giving the agent direct access to internal service APIs.
+Filtmall Shopping Skill brings an AI-assisted shopping experience to developers, agent builders, and early users who want to try practical agent commerce workflows. It packages a lightweight Node.js CLI and buyer authorization flow into a ready-to-use skill folder, so an AI agent can help users search products, compare options, build carts, create checkout, open the buyer payment page, and follow up on orders.
 
-## Highlights
+This repository is designed for quick public demos and hands-on exploration. Clone it, install it as a skill, and let your agent experience a real shopping flow powered by the Filtalgo ecosystem.
 
-- Agent-oriented shopping workflow from product search to payment handoff.
-- OAuth login through the buyer site with a loopback CLI callback.
-- Calls only the protocol-adapter Agent Tool Gateway.
-- Bundled CLI requires Node.js 18 or later; no npm install is needed for the packaged skill.
-- Current remote test catalog contains curated beauty and personal-care products such as body wash, skincare, hand care, shampoo, and related daily-care goods.
-- Supports order query, logistics query, address management, unpaid order cancellation, paid-undelivered refund request, and after-sale requests for `RETURN_MONEY` and `RETURN_GOODS`.
+## What You Can Try
+
+- Product discovery with natural Chinese keywords such as `沐浴露`, `洗发露`, or brand/product fragments.
+- AI-assisted cart and checkout flow.
+- Browser-based buyer authorization and wallet payment handoff.
+- Order list, order detail, logistics query, address management, cancellation, refund, and after-sale workflows.
+- A packaged CLI runtime that only requires Node.js 18 or later.
+- A curated remote test catalog with beauty and personal-care products, including body wash, skincare, hand care, shampoo, and related daily-care goods.
+
+## Who Is This For
+
+- Developers exploring AI shopping assistants.
+- Agent platform users looking for a real commerce workflow demo.
+- Teams evaluating how AI agents can guide shopping, checkout, and post-purchase service.
+- Community members who want to experience the Filtalgo/Filtmall ecosystem before broader public release.
 
 ## Repository Contents
 
@@ -27,6 +36,8 @@ agents/openai.yaml        # Skill UI metadata
 ```
 
 ## Quick Start
+
+Prerequisite: Node.js 18 or later.
 
 ```bash
 node scripts/filtalgo.js auth login
@@ -51,29 +62,33 @@ node scripts/filtalgo.js order get <order_sn> --include-items true --json
 node scripts/filtalgo.js logistics get <order_sn> --json
 ```
 
-## Why This Exists
+## Suggested Demo Prompt
 
-Most public agent runtimes do not yet provide a full buyer-side OAuth client, checkout runtime, or payment handoff flow. This skill bridges that gap:
+After installing this skill, try asking your agent:
 
-1. The CLI opens the Filtalgo buyer authorization page.
-2. The buyer signs in and grants explicit scopes.
-3. The CLI stores OAuth tokens locally.
-4. The agent calls the protocol-adapter Agent Tool Gateway through the CLI.
-5. Payment remains buyer-controlled through a browser cashier page.
+> I want to buy a cost-effective body wash. Please search Filtmall, compare several options, add one to my cart, create checkout, and send me the payment link.
 
-This keeps the agent useful while preserving the boundary that internal service APIs are not exposed to the agent.
+The agent should use the bundled CLI, show real product options, ask for confirmation when needed, and return a browser payment URL.
 
-## Security Notes
+## Why Developers Like This Demo
+
+Many agent demos stop at product recommendations. Filtmall Shopping Skill goes further: it lets an agent move from recommendation to cart, checkout, buyer payment handoff, and order follow-up. That makes it useful for testing real agent-commerce behavior, not just conversational product search.
+
+The buyer remains in control of login and payment, while the agent handles the repetitive shopping steps.
+
+## About Filtalgo
+
+[Filtalgo](https://www.filtalgo.com/) is building practical AI and commerce infrastructure for smarter product discovery, assisted shopping, and intelligent transaction workflows. Filtmall Shopping Skill is an early public-facing demo of that direction.
+
+Visit the official website: [https://www.filtalgo.com/](https://www.filtalgo.com/)
+
+## Responsible Use
 
 - Do not print access tokens, refresh tokens, or client secrets in user-facing output.
-- The bundled OAuth client is for the remote test environment.
-- The CLI sends the real access token only in the HTTP `Authorization` header.
-- The agent should never call service, UCP, or ACP endpoints directly; use the Agent Tool Gateway through `scripts/filtalgo.js`.
+- Ask the user for confirmation before checkout, cancellation, refund, or after-sale actions.
+- Use prices, SKU IDs, product names, order numbers, and payment links exactly as returned by the CLI.
+- If search returns no products, try one or two shorter keywords before reporting that the test catalog has no match.
 
 ## Current Status
 
-This is an internal beta / MVP skill. It is intended for controlled demos, remote development testing, and agent workflow validation before a broader public release.
-
-## Brand
-
-Filtmall Shopping Skill is part of the Filtalgo ecosystem, exploring practical agent-commerce workflows for real catalog search, cart operations, buyer-authorized checkout, and post-purchase service.
+This is a public-preview / MVP skill for demos and developer exploration. The remote catalog is intentionally curated, and the experience will continue to evolve as Filtalgo expands the product range, agent UX, and post-purchase workflows.
