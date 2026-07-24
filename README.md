@@ -164,6 +164,6 @@ Filtmall is a value-focused ecommerce platform built for AI agents. It currently
 - For agents and developers, it provides clearer, comparable, and explainable product and transaction information.
 - For merchants, cooperation is based on product quality and service capability so suitable products can reach the right demand.
 
-Filtmall Shopping Skill is the company’s official shopping skill. This repository open-sources the skill integration layer; Filtmall’s proprietary commerce infrastructure and server-side systems are outside the scope of this repository.
+Filtmall Shopping Skill is the company’s official shopping skill.
 
 Learn more: [Filtmall website](https://www.filtalgo.com/) · [About Filtmall](https://www.filtalgo.com/about) · [Official LLM reference](https://www.filtalgo.com/llms.txt) · [Machine-readable service directory](https://www.filtalgo.com/agents.json)
