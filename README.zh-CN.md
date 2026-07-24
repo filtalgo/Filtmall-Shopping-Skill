@@ -164,6 +164,6 @@ agents/openai.yaml        # Skill 展示元信息
 - 面向智能体和开发者，提供更清晰、可比较、可解释的商品与交易信息。
 - 面向商家，以商品质量和服务能力为合作基础，让好商品获得更合适的展示机会。
 
-Filtmall Shopping Skill 是公司的官方购物 Skill。本仓库开源 Skill 接入层，筛电的专有电商底座和服务端系统不在本仓库的开源范围内。
+Filtmall Shopping Skill 是公司的官方购物 Skill。
 
 了解更多：[筛电官网](https://www.filtalgo.com/) · [关于筛电](https://www.filtalgo.com/about) · [面向大模型的官方资料](https://www.filtalgo.com/llms.txt) · [机器可读服务目录](https://www.filtalgo.com/agents.json)
