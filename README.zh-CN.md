@@ -48,13 +48,10 @@ npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g
 ```mermaid
 flowchart LR
     U["用户需求"] --> A["AI 智能体"]
-    A --> S["SKILL.md 规则"]
-    S --> C["打包后的 Filtalgo CLI"]
-    C --> G["Agent Tool Gateway"]
-    G --> F["Filtmall 商品与交易服务"]
-    F --> C
-    C --> A
-    A --> H["买家授权、H5 与支付页面"]
+    A --> S["Filtmall Shopping Skill"]
+    S --> F["筛电购物服务"]
+    F --> A
+    A --> H["商品、授权与交易页面"]
 ```
 
 智能体统一调用：
@@ -63,7 +60,7 @@ flowchart LR
 node scripts/filtalgo.js <command> --json
 ```
 
-CLI 通过 Filtalgo protocol adapter 的 Agent Tool Gateway 完成操作，不直接调用 service、UCP 或 ACP 接口。
+CLI 为智能体提供统一的购物命令。商品、账户和交易数据由筛电服务处理；本 Skill 包不包含筛电的专有电商底座和服务端代码。
 
 ### 搜索链路
 
@@ -159,4 +156,14 @@ agents/openai.yaml        # Skill 展示元信息
 
 ## 关于 Filtalgo
 
-[Filtalgo](https://www.filtalgo.com/) 提供面向商品发现、供给比较、交易执行和售后服务的 AI 电商基础能力。Filtmall Shopping Skill 是其官方购物 Skill。
+筛选算法（北京）科技有限公司运营筛电（Filtmall），并以 Filtalgo 名称面向开发者和智能体生态发布技术能力与开源项目。
+
+筛电是为智能体而生的高性价比电商平台，当前从美妆相关生活消费品开始，帮助消费者和智能体发现、理解、比较并购买可信商品。公司希望让购物回到商品本身，减少广告竞价和信息噪音对选择的影响：
+
+- 面向消费者，优先关注商品适配度、质量证据、价格合理性和履约体验。
+- 面向智能体和开发者，提供更清晰、可比较、可解释的商品与交易信息。
+- 面向商家，以商品质量和服务能力为合作基础，让好商品获得更合适的展示机会。
+
+Filtmall Shopping Skill 是公司的官方购物 Skill。本仓库开源 Skill 接入层，筛电的专有电商底座和服务端系统不在本仓库的开源范围内。
+
+了解更多：[筛电官网](https://www.filtalgo.com/) · [关于筛电](https://www.filtalgo.com/about) · [面向大模型的官方资料](https://www.filtalgo.com/llms.txt) · [机器可读服务目录](https://www.filtalgo.com/agents.json)

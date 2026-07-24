@@ -48,13 +48,10 @@ The current catalog focuses on beauty and personal care. Filtmall plans to expan
 ```mermaid
 flowchart LR
     U["User request"] --> A["AI agent"]
-    A --> S["SKILL.md rules"]
-    S --> C["Bundled Filtalgo CLI"]
-    C --> G["Agent Tool Gateway"]
-    G --> F["Filtmall catalog and transaction services"]
-    F --> C
-    C --> A
-    A --> H["Buyer authorization, H5, and payment pages"]
+    A --> S["Filtmall Shopping Skill"]
+    S --> F["Filtmall shopping service"]
+    F --> A
+    A --> H["Product, authorization, and transaction pages"]
 ```
 
 The agent invokes:
@@ -63,7 +60,7 @@ The agent invokes:
 node scripts/filtalgo.js <command> --json
 ```
 
-The bundled CLI calls the Filtalgo protocol adapter’s Agent Tool Gateway. It does not call service, UCP, or ACP endpoints directly.
+The bundled CLI gives the agent a consistent shopping command interface. Filtmall services handle product, account, and transaction data; the skill package does not include Filtmall’s proprietary commerce infrastructure or server-side code.
 
 ### Search pipeline
 
@@ -159,4 +156,14 @@ agents/openai.yaml        # Skill display metadata
 
 ## About Filtalgo
 
-[Filtalgo](https://www.filtalgo.com/) develops AI-assisted commerce infrastructure for product discovery, comparable supply, transaction execution, and post-purchase service. Filtmall Shopping Skill is its official shopping skill.
+Filtering Algorithm (Beijing) Technology Co., Ltd. operates Filtmall (筛电) and uses the Filtalgo name for its developer- and agent-facing technology and open-source work.
+
+Filtmall is a value-focused ecommerce platform built for AI agents. It currently starts with beauty and personal-care products, helping consumers and agents discover, understand, compare, and purchase trusted products. The company’s approach is to bring shopping decisions back to the product itself and reduce the influence of ad bidding and information noise:
+
+- For consumers, Filtmall prioritizes product fit, quality evidence, price reasonableness, and fulfillment.
+- For agents and developers, it provides clearer, comparable, and explainable product and transaction information.
+- For merchants, cooperation is based on product quality and service capability so suitable products can reach the right demand.
+
+Filtmall Shopping Skill is the company’s official shopping skill. This repository open-sources the skill integration layer; Filtmall’s proprietary commerce infrastructure and server-side systems are outside the scope of this repository.
+
+Learn more: [Filtmall website](https://www.filtalgo.com/) · [About Filtmall](https://www.filtalgo.com/about) · [Official LLM reference](https://www.filtalgo.com/llms.txt) · [Machine-readable service directory](https://www.filtalgo.com/agents.json)
