@@ -1,7 +1,7 @@
 interface:
   display_name: "Filtmall Shopping"
-  short_description: "Search and buy Filtalgo remote test catalog products through the bundled Agent Tool Gateway CLI."
+  short_description: "搜索、推荐和购买商品，并处理购物车、订单、物流及售后。"
   brand_color: "#0B5FFF"
-  default_prompt: "Use $filtmall-shopping to search Filtalgo's remote test catalog, compare matching products, add selected items to cart, create checkout, and return the wallet payment URL."
+  default_prompt: "Use $filtmall-shopping for this shopping request; clarify vague requests, but never search for or recommend cosmetics for active allergic, red, or swollen skin symptoms and advise professional medical care instead."
 policy:
   allow_implicit_invocation: true

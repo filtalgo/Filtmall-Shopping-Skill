@@ -4,12 +4,14 @@
   const nodeRequire = require;
   const modules = {
 0: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/bin/cli.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/bin",
-  deps: {"fs":null,"../lib/config":1,"../lib/store":74,"../lib/auth":75,"../lib/token":77,"../lib/api":78,"crypto":null},
+  filename: "/snapshot/filtalgo-cli/bin/cli.js",
+  dirname: "/snapshot/filtalgo-cli/bin",
+  deps: {"fs":null,"../lib/config":1,"../lib/store":74,"../lib/auth":75,"../lib/api":77,"crypto":null},
   factory: function(require, module, exports, __filename, __dirname) {
 
 const fs = require('fs');
+
+const DEFAULT_LINK_CHANNEL = 'mobile_h5';
 
 const HELP = `filtalgo-cli - Shopping CLI for Filtalgo
 
@@ -17,10 +19,10 @@ USAGE
   filtalgo <command> [options]
 
 AUTH
-  login                         Authenticate via OAuth2
+  login                         Authenticate via OAuth Device Flow
   status                        Show current authentication status
   logout                        Remove stored credentials
-  auth login|refresh|status|logout
+  auth login|status|logout
 
 CONFIG
   config show [--show-secrets]
@@ -30,20 +32,24 @@ CONFIG
 
 SHOPPING
   tools                         List available agent tools
-  search <query> [--category <category>]
-  cart get|add-item|update-item|remove-item|clear
+  search <query> [--limit 10]   Run adapter discovery, context, result-set search, summary, and hydration
+  search-spu <query>            Explicit legacy SPU search fallback
+  search-tools adapters|context|start|structured|summary|hydrate|refine|rerank|details|lookup|product
+  cart get|add-item|update-item|remove-item|clear [--way CART|BUY_NOW]
+  buy-now <sku-id> [--quantity 1]  Prepare a BUY_NOW checkout from one SKU
   address list|create|update|delete
   coupon list-available
   order list|get|cancel           cancel unpaid order or request paid-undelivered full refund
   logistics get
   aftersale list|get|apply-info|reasons|create|cancel|submit-logistics|traces|store-address
-  checkout create
+  checkout create [--way CART|BUY_NOW]
+  checkout create-from-cart [--way CART|BUY_NOW]
   checkout show <id>
   checkout preview-total
   checkout select-address --shipping-address-id <id>
   checkout apply-coupon|remove-coupon --member-coupon-id <id>
   checkout select-shipping-method --shipping-method <method>
-  checkout prepare-payment <id> [--handler wallet] [--buyer-base-url <url>]
+  checkout prepare-payment <id> [--handler wallet] [--buyer-base-url <url>] [--link-channel pc_web|mobile_h5]
   checkout complete <id>
   checkout cancel <id>
 
@@ -52,14 +58,24 @@ UTILITY
   doctor                        Check local config and remote adapter health
 
 GLOBAL OPTIONS
+  --agent-session-id <id>       Use an opaque agent session for this command
+  --link-channel <channel>      Prefer buyer links for pc_web or mobile_h5 (default: mobile_h5)
   --json                        Print machine-readable JSON
   --help, -h                    Show help
 `;
+
+let runtimeOptions = {};
 
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   const args = parsed.positionals;
   const opts = parsed.options;
+  runtimeOptions = opts;
+  if (opts.agentSessionId) {
+    process.env.FILTALGO_CLI_EFFECTIVE_AGENT_SESSION_ID = opts.agentSessionId;
+  } else {
+    delete process.env.FILTALGO_CLI_EFFECTIVE_AGENT_SESSION_ID;
+  }
 
   if (args.length === 0 || args[0] === 'help' || opts.help) {
     console.log(HELP);
@@ -69,6 +85,7 @@ async function main() {
   const command = args[0];
 
   try {
+    normalizeLinkChannel(opts.linkChannel);
     switch (command) {
       case 'auth':
         await handleAuth(args.slice(1), opts);
@@ -89,13 +106,25 @@ async function main() {
         await handleDoctor(opts);
         break;
       case 'search':
-        await handleSearch(args.slice(1), opts);
+        await handleSearch(args.slice(1), opts, { fullPipeline: true });
+        break;
+      case 'search-spu':
+        await handleSearch(args.slice(1), opts, { fullPipeline: false });
+        break;
+      case 'search-tools':
+        await handleSearchTools(args.slice(1), opts);
+        break;
+      case 'search-sku':
+        throw new CliError('search-sku is no longer supported; use "search <query>".', 'SEARCH_COMMAND_NOT_SUPPORTED');
         break;
       case 'tools':
         await handleTools(opts);
         break;
       case 'cart':
         await handleCart(args.slice(1), opts);
+        break;
+      case 'buy-now':
+        await handleBuyNow(args.slice(1), opts);
         break;
       case 'address':
         await handleAddress(args.slice(1), opts);
@@ -153,7 +182,6 @@ class CliError extends Error {
 const ERROR_MESSAGES = {
   auth_relogin_required: '登录已过期，请重新执行 "filtalgo auth login"。',
   NOT_LOGGED_IN: '尚未登录，请先执行 "filtalgo auth login"。',
-  TOKEN_SUB_MISSING: 'OAuth access token 缺少 sub，请重新登录。',
   order_not_cancelable: '当前订单状态不能取消；如果已支付且已发货，请改走售后申请。',
   after_sale_not_allowed: '当前订单行状态不允许申请售后，请确认订单已支付且满足 service 售后规则。',
   payment_required: '当前操作要求订单已支付。',
@@ -172,7 +200,7 @@ function normalizeCliError(err) {
 
 function sanitizeDetails(details) {
   if (!details || typeof details !== 'object') return undefined;
-  const blocked = new Set(['access_token', 'refresh_token', 'client_secret', 'authorization']);
+  const blocked = new Set(['access_token', 'refresh_token', 'client_secret', 'authorization', 'agent_session_id', 'agent_session_ids']);
   const out = {};
   for (const [key, value] of Object.entries(details)) {
     if (blocked.has(String(key).toLowerCase())) continue;
@@ -205,15 +233,32 @@ function parseArgs(argv) {
       case '--dry-run':
         options.dryRun = true;
         break;
-      case '--authorize-url':
-      case '--token-url':
+      case '--device':
+        options.device = true;
+        break;
       case '--client-id':
-      case '--client-secret':
-      case '--redirect-port':
+      case '--agent-session-id':
       case '--category':
+      case '--limit':
       case '--body':
+      case '--query':
+      case '--adapter-name':
+      case '--session-id':
+      case '--result-handle':
+      case '--cursor':
+      case '--intent':
+      case '--filters':
+      case '--ranking-preferences':
+      case '--set-filters':
+      case '--remove-filter-fields':
+      case '--sort':
+      case '--product-id':
+      case '--product-ids':
+      case '--ids':
+      case '--checkout-id':
       case '--handler':
       case '--buyer-base-url':
+      case '--link-channel':
       case '--format':
       case '--sku-id':
       case '--sku-ids':
@@ -268,6 +313,12 @@ function parseArgs(argv) {
       case '--confirm':
         options.confirm = true;
         break;
+      case '--sku':
+        options.sku = true;
+        break;
+      case '--spu':
+        options.spu = true;
+        break;
       case '--default':
         options.isDefault = true;
         break;
@@ -286,11 +337,7 @@ function optionName(flag) {
 
 function configOverrides(opts) {
   const out = {};
-  if (opts.authorizeUrl) out.authorize_url = opts.authorizeUrl;
-  if (opts.tokenUrl) out.token_url = opts.tokenUrl;
-  if (opts.clientId) out.client_id = opts.clientId;
-  if (opts.clientSecret) out.client_secret = opts.clientSecret;
-  if (opts.redirectPort) out.redirect_port = Number.parseInt(opts.redirectPort, 10);
+  if (opts.clientId) out.device_client_id = opts.clientId;
   return out;
 }
 
@@ -303,90 +350,115 @@ async function handleAuth(args, opts) {
   switch (sub) {
     case 'login': {
       const cfg = { ...config.load(), ...configOverrides(opts) };
-      validateAuthConfig(cfg);
+      validateDeviceAuthConfig(cfg);
 
       if (opts.dryRun) {
-        const verifier = auth._generateCodeVerifier();
-        const state = auth._generateState();
-        const redirectUri = `http://127.0.0.1:${cfg.redirect_port || 19832}/callback`;
-        const authUrl = auth._buildAuthorizeUrl(cfg, verifier, state, redirectUri);
+        const clientId = resolveDeviceClientId(cfg, opts);
         return output(opts, {
           ok: true,
-          client_id: cfg.client_id,
-          authorize_url: cfg.authorize_url,
-          token_url: cfg.token_url,
+          mode: 'agent-session',
+          client_id: clientId,
+          adapter_url: cfg.adapter_url,
+          device_start_path: cfg.device_start_path,
+          device_status_path: cfg.device_status_path,
+          device_token_path: cfg.device_token_path,
           scopes: cfg.scopes,
-          redirect_uri: redirectUri,
-          url: authUrl.toString(),
         }, () => {
-          console.log(`Client ID:     ${cfg.client_id}`);
-          console.log(`Authorize URL: ${cfg.authorize_url}`);
-          console.log(`Token URL:     ${cfg.token_url}`);
-          console.log(`Scopes:        ${cfg.scopes.join(', ')}`);
-          console.log(`\nDry run would open:\n${authUrl.toString()}\n`);
+          console.log(`Mode:         agent-session`);
+          console.log(`Client ID:    ${clientId}`);
+          console.log(`Adapter URL:  ${cfg.adapter_url}`);
+          console.log(`Start Path:   ${cfg.device_start_path}`);
+          console.log(`Status Path:  ${cfg.device_status_path}`);
+          console.log(`Token Path:   ${cfg.device_token_path}`);
+          console.log(`Scopes:       ${cfg.scopes.join(', ')}`);
         });
       }
 
-      const credentials = await auth.login(cfg);
+      const credentials = await auth.loginDevice(cfg, {
+        quiet: Boolean(opts.json),
+        logger: opts.json ? console.error : console.log,
+        clientId: resolveDeviceClientId(cfg, opts),
+        linkChannel: opts.linkChannel,
+      });
       store.save(credentials);
       return output(opts, { ok: true, credentials: redactCredentials(credentials) }, () => {
-        console.log('Login successful.');
-        console.log(`Token type:    ${credentials.token_type}`);
-        console.log(`Expires at:    ${credentials.expires_at}`);
+        console.log('Device login successful.');
+        console.log(`Mode:          ${credentials.mode}`);
+        console.log(`Client ID:     ${credentials.client_id || 'unknown'}`);
+        console.log(`Member ID:     ${credentials.member_id || 'unknown'}`);
+        console.log(`Expires at:    ${credentials.expires_at || 'unknown'}`);
         console.log(`Scope:         ${credentials.scope || cfg.scopes.join(' ')}`);
-        console.log(`Refresh token: ${credentials.refresh_token ? 'yes' : 'no'}`);
-      });
-    }
-
-    case 'refresh': {
-      const creds = store.load();
-      if (!creds || !creds.refresh_token) {
-        throw new CliError('No refresh token available. Run "filtalgo login" first.', 'NO_REFRESH_TOKEN');
-      }
-      const cfg = config.load();
-      validateAuthConfig(cfg);
-      const newCreds = await auth.refreshAccessToken(cfg, creds.refresh_token);
-      store.save(newCreds);
-      return output(opts, { ok: true, credentials: redactCredentials(newCreds) }, () => {
-        console.log('Token refreshed.');
-        console.log(`Expires at: ${newCreds.expires_at}`);
       });
     }
 
     case 'status': {
       const creds = store.load();
+      const cfg = config.load();
+      const agentSession = resolveAgentSessionSelection(store, creds, opts);
+      if (agentSession) {
+        const expired = agentSession.record ? store.isExpired(agentSession.record) : null;
+        return output(opts, {
+          ok: true,
+          profile: cfg.profile || 'local',
+          logged_in: true,
+          mode: 'agent-session',
+          session_source: agentSession.source,
+          expired,
+          member_id: agentSession.record && agentSession.record.member_id ? agentSession.record.member_id : null,
+          subject: agentSession.record && agentSession.record.member_id ? agentSession.record.member_id : null,
+          client_id: agentSession.record && agentSession.record.client_id ? agentSession.record.client_id : null,
+          token_type: null,
+          expires_at: agentSession.record ? (agentSession.record.expires_at || null) : null,
+          scope: agentSession.record ? (agentSession.record.scope || null) : null,
+          has_agent_session_id: true,
+          has_refresh_token: false,
+        }, () => {
+          console.log(`Status:        ${expired === true ? 'Expired' : 'Active'}`);
+          console.log(`Profile:       ${cfg.profile || 'local'}`);
+          console.log(`Mode:          agent-session`);
+          console.log(`Source:        ${agentSession.source}`);
+          console.log(`Member ID:     ${agentSession.record && agentSession.record.member_id ? agentSession.record.member_id : 'unknown'}`);
+          console.log(`Client ID:     ${agentSession.record && agentSession.record.client_id ? agentSession.record.client_id : 'unknown'}`);
+          console.log(`Expires at:    ${agentSession.record && agentSession.record.expires_at ? agentSession.record.expires_at : 'unknown'}`);
+          console.log(`Scope:         ${agentSession.record && agentSession.record.scope ? agentSession.record.scope : 'unknown'}`);
+        });
+      }
+
       if (!creds) {
         throw new CliError('Not logged in. Run "filtalgo login" to authenticate.', 'NOT_LOGGED_IN');
       }
-      const expired = store.isExpired(creds);
-      const cfg = config.load();
-      const token = require('../lib/token');
-      const subject = token.memberIdFromAccessToken(creds.access_token);
-      return output(opts, {
-        ok: true,
-        profile: cfg.profile || 'local',
-        logged_in: true,
-        expired,
-        subject: subject || null,
-        token_type: creds.token_type || 'Bearer',
-        expires_at: creds.expires_at || null,
-        scope: creds.scope || null,
-        has_refresh_token: Boolean(creds.refresh_token),
-      }, () => {
-        console.log(`Status:        ${expired ? 'Expired' : 'Active'}`);
-        console.log(`Profile:       ${cfg.profile || 'local'}`);
-        console.log(`Subject:       ${subject || 'unknown'}`);
-        console.log(`Token type:    ${creds.token_type || 'Bearer'}`);
-        console.log(`Expires at:    ${creds.expires_at || 'unknown'}`);
-        console.log(`Scope:         ${creds.scope || 'unknown'}`);
-        console.log(`Has refresh:   ${creds.refresh_token ? 'yes' : 'no'}`);
-      });
+      throw new CliError('Stored credentials are from the old OAuth flow. Run "filtalgo auth logout" then "filtalgo auth login".', 'LEGACY_CREDENTIALS_UNSUPPORTED');
     }
 
     case 'logout': {
+      const cfg = config.load();
+      const creds = store.load();
+      let revoked = false;
+      let revokeFailed = null;
+      if (creds && store.getMode(creds) === 'agent-session' && store.getAgentSessionId(creds)) {
+        try {
+          const api = require('../lib/api');
+          await api.post(cfg.device_revoke_path || '/agent-auth/session/revoke', {
+            agent_session_id: store.getAgentSessionId(creds),
+            reason: 'logout',
+          }, { authOptional: true });
+          revoked = true;
+        } catch (err) {
+          revokeFailed = normalizeCliError(err).message;
+        }
+      }
       const removed = store.remove();
-      return output(opts, { ok: true, removed }, () => {
-        console.log(removed ? 'Logged out.' : 'Already logged out.');
+      return output(opts, { ok: true, removed, revoked, revoke_failed: revokeFailed }, () => {
+        if (!removed) {
+          console.log('Already logged out.');
+          return;
+        }
+        console.log('Logged out.');
+        if (revoked) {
+          console.log('Agent session revoked.');
+        } else if (revokeFailed) {
+          console.log(`Agent session revoke skipped: ${revokeFailed}`);
+        }
       });
     }
 
@@ -395,11 +467,14 @@ async function handleAuth(args, opts) {
   }
 }
 
-function validateAuthConfig(cfg) {
-  for (const key of ['authorize_url', 'token_url', 'client_id']) {
+function validateDeviceAuthConfig(cfg) {
+  for (const key of ['adapter_url', 'device_start_path', 'device_status_path', 'device_token_path']) {
     if (!cfg[key]) {
       throw new CliError(`Missing required config: ${key}`, 'MISSING_CONFIG');
     }
+  }
+  if (!resolveDeviceClientId(cfg, runtimeOptions)) {
+    throw new CliError('Missing required config: device_client_id', 'MISSING_CONFIG');
   }
   if (!Array.isArray(cfg.scopes) || cfg.scopes.length === 0) {
     throw new CliError('Missing required config: scopes', 'MISSING_CONFIG');
@@ -407,13 +482,38 @@ function validateAuthConfig(cfg) {
 }
 
 function redactCredentials(creds) {
-  return {
-    token_type: creds.token_type || 'Bearer',
-    expires_at: creds.expires_at || null,
-    scope: creds.scope || null,
-    has_access_token: Boolean(creds.access_token),
-    has_refresh_token: Boolean(creds.refresh_token),
-  };
+  if (creds && (creds.mode === 'agent-session' || creds.agent_session_id)) {
+    return {
+      mode: 'agent-session',
+      client_id: creds.client_id || null,
+      member_id: creds.member_id || null,
+      expires_at: creds.expires_at || null,
+      scope: creds.scope || null,
+      has_agent_session_id: Boolean(creds.agent_session_id),
+      has_refresh_token: false,
+    };
+  }
+  return { mode: 'none', has_agent_session_id: false, has_refresh_token: false };
+}
+
+function resolveDeviceClientId(cfg, opts = {}) {
+  return String(opts.clientId || cfg.device_client_id || '').trim();
+}
+
+function resolveAgentSessionSelection(store, creds, opts = {}) {
+  const explicit = String(opts.agentSessionId || '').trim();
+  if (explicit) {
+    return { source: 'option', agentSessionId: explicit, record: null };
+  }
+  const envValue = String(process.env.FILTALGO_AGENT_SESSION_ID || '').trim();
+  if (envValue) {
+    return { source: 'env', agentSessionId: envValue, record: null };
+  }
+  const stored = store.getAgentSessionId(creds);
+  if (stored) {
+    return { source: 'store', agentSessionId: stored, record: creds };
+  }
+  return null;
 }
 
 async function handleConfig(args, opts) {
@@ -454,10 +554,11 @@ async function handleConfig(args, opts) {
 }
 
 function maskConfig(cfg) {
-  return {
-    ...cfg,
-    client_secret: cfg.client_secret ? '[set]' : '',
-  };
+  const out = { ...cfg };
+  if (cfg.device_client_secret) {
+    out.device_client_secret = '[set]';
+  }
+  return out;
 }
 
 async function handleDoctor(opts) {
@@ -469,24 +570,28 @@ async function handleDoctor(opts) {
   const checks = [];
   addCheck(checks, 'node_version', Number(process.versions.node.split('.')[0]) >= 18, `Node ${process.versions.node}`);
   addCheck(checks, 'config_file', fs.existsSync(config.CONFIG_FILE), config.CONFIG_FILE);
-  addCheck(checks, 'auth_config', hasAuthConfig(cfg), 'authorize_url, token_url, client_id, scopes');
-  addCheck(
-    checks,
-    'oauth_client_secret',
-    true,
-    cfg.client_secret
-      ? 'client_secret configured; current service requires it and PKCE remains enabled'
-      : 'no client_secret configured; public client mode requires service support',
-    cfg.client_secret ? 'info' : 'warn',
-  );
-
-  addCheck(checks, 'loopback_callback', true, `http://127.0.0.1:${cfg.redirect_port || 19832}/callback`);
+  addCheck(checks, 'device_auth_config', hasDeviceAuthConfig(cfg), 'adapter_url, device_client_id, scopes');
+  addCheck(checks, 'device_auth_facade', Boolean(cfg.device_start_path && cfg.device_status_path && cfg.device_token_path && cfg.device_revoke_path), [
+    cfg.device_start_path || 'missing-start',
+    cfg.device_status_path || 'missing-status',
+    cfg.device_token_path || 'missing-token',
+    cfg.device_revoke_path || 'missing-revoke',
+  ].join(', '));
 
   const creds = store.load();
-  addCheck(checks, 'credentials', Boolean(creds), creds ? `expires_at=${creds.expires_at || 'unknown'}` : 'not logged in', creds ? 'info' : 'warn');
+  addCheck(
+    checks,
+    'credentials',
+    Boolean(creds),
+    creds ? `mode=${store.getMode(creds)} expires_at=${creds.expires_at || 'unknown'}` : 'not logged in',
+    creds ? 'info' : 'warn',
+  );
   if (creds) {
-    addCheck(checks, 'access_token', !store.isExpired(creds), store.isExpired(creds) ? 'expired' : 'active', store.isExpired(creds) ? 'warn' : 'pass');
-    addCheck(checks, 'refresh_token', Boolean(creds.refresh_token), creds.refresh_token ? 'available' : 'missing', creds.refresh_token ? 'pass' : 'warn');
+    if (store.getMode(creds) === 'agent-session') {
+      addCheck(checks, 'agent_session', !store.isExpired(creds), store.isExpired(creds) ? 'expired' : 'active', store.isExpired(creds) ? 'warn' : 'pass');
+    } else {
+      addCheck(checks, 'legacy_credentials', false, 'old OAuth credentials are ignored; run filtalgo auth logout && filtalgo auth login', 'warn');
+    }
   }
 
   try {
@@ -515,8 +620,8 @@ async function handleDoctor(opts) {
   });
 }
 
-function hasAuthConfig(cfg) {
-  return Boolean(cfg.authorize_url && cfg.token_url && cfg.client_id && Array.isArray(cfg.scopes) && cfg.scopes.length > 0);
+function hasDeviceAuthConfig(cfg) {
+  return Boolean(cfg.adapter_url && cfg.device_client_id && Array.isArray(cfg.scopes) && cfg.scopes.length > 0);
 }
 
 function addCheck(checks, name, passed, detail, overrideStatus) {
@@ -527,29 +632,253 @@ function addCheck(checks, name, passed, detail, overrideStatus) {
   });
 }
 
-async function handleSearch(args, opts) {
+async function handleSearch(args, opts, { fullPipeline = true } = {}) {
   const query = args.join(' ');
   if (!query) {
-    throw new CliError('Usage: filtalgo search <query> [--category <category>]', 'USAGE');
+    throw new CliError('Usage: filtalgo search <query> [--limit 10]', 'USAGE');
   }
 
   const api = require('../lib/api');
-  const searchArgs = {
-    query,
-    pagination: {
-      limit: 10,
-    },
-  };
-  if (opts.category) {
-    searchArgs.context = {
-      category: opts.category,
+  if (fullPipeline) {
+    const payload = await runSearchPipeline(api, query, opts);
+    return output(opts, payload, () => printGatewayPayload(payload.result));
+  }
+
+  const { toolName, args: searchArgs } = buildSearchCall(query, opts);
+  const searchResult = unwrapMcpToolResult(await api.mcpCall(toolName, searchArgs, { authOptional: true }));
+  const hydratedResult = await hydrateSearchResult(api, searchResult, searchArgs.limit);
+  const result = normalizeSearchResult(searchResult, hydratedResult);
+  const response = buildSearchResponse(query, result, { mode: 'spu_fallback' });
+
+  return output(opts, { ok: true, tool: toolName, tools_used: [toolName], result, response }, () => printGatewayPayload(result));
+}
+
+async function runSearchPipeline(api, query, opts = {}) {
+  const limit = normalizePositiveInt(opts.limit, 10, 50);
+  const toolsUsed = [];
+  const adaptersResult = await callSearchTool(api, toolsUsed, 'list_supported_category_adapters', {});
+  const selection = selectSearchAdapter(query, adaptersResult, opts);
+
+  // Generic queries may not identify a category. Keep search-spu as a visible,
+  // explicit fallback instead of guessing the wrong category adapter.
+  if (!selection) {
+    const { toolName, args } = buildSearchCall(query, opts);
+    const searchResult = await callSearchTool(api, toolsUsed, toolName, args);
+    const hydratedResult = await hydrateSearchResult(api, searchResult, limit, toolsUsed);
+    const result = normalizeSearchResult(searchResult, hydratedResult);
+    return {
+      ok: true,
+      tool: 'search_pipeline',
+      tools_used: toolsUsed,
+      workflow: { mode: 'spu_fallback', reason: 'no_category_adapter_match' },
+      result,
+      response: buildSearchResponse(query, result, { mode: 'spu_fallback' }),
     };
   }
-  const result = unwrapMcpToolResult(await api.mcpCall('search_catalog', {
-    ...searchArgs,
-  }));
 
-  return output(opts, { ok: true, result }, () => printResult(result));
+  const contextResult = await callSearchTool(api, toolsUsed, 'get_category_adapter_context', {
+    adapter_name: selection.adapter_name,
+  });
+  const filters = opts.filters
+    ? jsonArrayOption(opts.filters, '--filters')
+    : inferredCategoryFilters(selection.category, contextResult);
+  const searchArgs = {
+    adapter_name: selection.adapter_name,
+    retrieval_query: query,
+    limit,
+  };
+  if (filters.length > 0) searchArgs.filters = filters;
+  if (opts.rankingPreferences) {
+    searchArgs.ranking_preferences = jsonArrayOption(opts.rankingPreferences, '--ranking-preferences');
+  }
+
+  const searchResult = await callSearchTool(api, toolsUsed, 'start_product_search', searchArgs);
+  const resultSet = resultSetIdentity(searchResult);
+  let summaryResult = null;
+  if (resultSet) {
+    summaryResult = await callSearchTool(api, toolsUsed, 'get_result_set_summary', resultSet);
+  }
+  const hydratedResult = await hydrateSearchResult(api, searchResult, limit, toolsUsed);
+  const result = normalizeSearchResult(searchResult, hydratedResult);
+
+  return {
+    ok: true,
+    tool: 'search_pipeline',
+    tools_used: toolsUsed,
+    workflow: {
+      mode: 'category_result_set',
+      adapter_name: selection.adapter_name,
+      category: selection.category,
+      applied_filters: filters,
+    },
+    result: summaryResult ? { ...result, result_set_summary: summaryResult } : result,
+    response: buildSearchResponse(query, result, {
+      mode: 'category_result_set',
+      adapter_name: selection.adapter_name,
+      category: selection.category,
+    }),
+  };
+}
+
+async function callSearchTool(api, toolsUsed, toolName, args) {
+  const result = unwrapMcpToolResult(await api.mcpCall(toolName, args, { authOptional: true }));
+  toolsUsed.push(toolName);
+  return result;
+}
+
+async function handleSearchTools(args, opts) {
+  const sub = args[0];
+  if (!sub) {
+    throw new CliError('Usage: filtalgo search-tools <adapters|context|start|structured|summary|hydrate|refine|rerank|details|lookup|product>', 'USAGE');
+  }
+
+  let toolName;
+  let toolArgs;
+  switch (sub) {
+    case 'adapters':
+      toolName = 'list_supported_category_adapters';
+      toolArgs = {};
+      break;
+    case 'context': {
+      const adapterName = opts.adapterName || args[1];
+      if (!adapterName) throw new CliError('Usage: filtalgo search-tools context <adapter_name>', 'USAGE');
+      toolName = 'get_category_adapter_context';
+      toolArgs = { adapter_name: adapterName };
+      break;
+    }
+    case 'start': {
+      toolName = 'start_product_search';
+      if (opts.body) {
+        toolArgs = jsonObjectOption(opts.body, '--body');
+        break;
+      }
+      const adapterName = opts.adapterName || args[1];
+      if (!adapterName) throw new CliError('search-tools start requires <adapter_name> or --adapter-name', 'USAGE');
+      toolArgs = { adapter_name: adapterName };
+      const retrievalQuery = opts.query || args.slice(2).join(' ');
+      if (retrievalQuery) toolArgs.retrieval_query = retrievalQuery;
+      if (opts.sessionId) toolArgs.session_id = opts.sessionId;
+      if (opts.limit) toolArgs.limit = normalizePositiveInt(opts.limit, 10, 50);
+      if (opts.filters) toolArgs.filters = jsonArrayOption(opts.filters, '--filters');
+      if (opts.rankingPreferences) toolArgs.ranking_preferences = jsonArrayOption(opts.rankingPreferences, '--ranking-preferences');
+      break;
+    }
+    case 'structured':
+      toolName = 'search_by_structured_intent';
+      if (opts.body) {
+        toolArgs = jsonObjectOption(opts.body, '--body');
+      } else {
+        if (!opts.intent) throw new CliError('search-tools structured requires --intent <json> or --body <json>', 'USAGE');
+        toolArgs = {
+          intent: jsonObjectOption(opts.intent, '--intent'),
+          limit: normalizePositiveInt(opts.limit, 10, 50),
+        };
+      }
+      break;
+    case 'summary': {
+      toolName = 'get_result_set_summary';
+      const ids = resultSetIDs(args.slice(1), opts, 'search-tools summary');
+      toolArgs = ids;
+      break;
+    }
+    case 'hydrate': {
+      toolName = 'hydrate_products';
+      toolArgs = resultSetIDs(args.slice(1), opts, 'search-tools hydrate');
+      if (opts.cursor) toolArgs.cursor = opts.cursor;
+      if (opts.limit) toolArgs.limit = normalizePositiveInt(opts.limit, 10, 50);
+      break;
+    }
+    case 'refine': {
+      toolName = 'refine_result_set';
+      if (opts.body) {
+        toolArgs = jsonObjectOption(opts.body, '--body');
+        break;
+      }
+      toolArgs = resultSetIDs(args.slice(1), opts, 'search-tools refine');
+      if (opts.setFilters) toolArgs.set_filters = jsonArrayOption(opts.setFilters, '--set-filters');
+      if (opts.removeFilterFields) toolArgs.remove_filter_fields = csvValues(opts.removeFilterFields);
+      if (opts.sort) toolArgs.sort = jsonObjectOption(opts.sort, '--sort');
+      if (opts.limit) toolArgs.limit = normalizePositiveInt(opts.limit, 10, 50);
+      break;
+    }
+    case 'rerank': {
+      toolName = 'adjust_ranking_strategy';
+      if (opts.body) {
+        toolArgs = jsonObjectOption(opts.body, '--body');
+        break;
+      }
+      toolArgs = resultSetIDs(args.slice(1), opts, 'search-tools rerank');
+      if (!opts.rankingPreferences) throw new CliError('search-tools rerank requires --ranking-preferences <json>', 'USAGE');
+      toolArgs.ranking_preferences = jsonArrayOption(opts.rankingPreferences, '--ranking-preferences');
+      if (opts.limit) toolArgs.limit = normalizePositiveInt(opts.limit, 10, 50);
+      break;
+    }
+    case 'details': {
+      toolName = 'get_product_details';
+      const productIDs = csvValues(opts.productIds || args.slice(1));
+      if (productIDs.length === 0) throw new CliError('search-tools details requires --product-ids <id[,id]>', 'USAGE');
+      toolArgs = { productIds: productIDs };
+      break;
+    }
+    case 'lookup': {
+      toolName = 'lookup_catalog';
+      if (opts.body) {
+        toolArgs = jsonObjectOption(opts.body, '--body');
+        break;
+      }
+      const ids = csvValues(opts.ids || args.slice(1));
+      if (ids.length === 0) throw new CliError('search-tools lookup requires --ids <id[,id]> or --body <json>', 'USAGE');
+      toolArgs = { ids };
+      break;
+    }
+    case 'product': {
+      toolName = 'get_product';
+      if (opts.body) {
+        toolArgs = jsonObjectOption(opts.body, '--body');
+        break;
+      }
+      const id = opts.productId || args[1];
+      if (!id) throw new CliError('search-tools product requires <product_or_variant_id> or --body <json>', 'USAGE');
+      toolArgs = { id };
+      break;
+    }
+    default:
+      throw new CliError(`Unknown search-tools command: ${sub}`, 'UNKNOWN_COMMAND');
+  }
+
+  const api = require('../lib/api');
+  const result = unwrapMcpToolResult(await api.mcpCall(toolName, toolArgs, { authOptional: true }));
+  return output(opts, { ok: true, tool: toolName, result }, () => printGatewayPayload(result));
+}
+
+function resultSetIDs(args, opts, command) {
+  const sessionId = opts.sessionId || args[0];
+  const resultHandle = opts.resultHandle || args[1];
+  if (!sessionId || !resultHandle) {
+    throw new CliError(`${command} requires --session-id <id> --result-handle <handle>`, 'USAGE');
+  }
+  return { session_id: sessionId, result_handle: resultHandle };
+}
+
+function jsonObjectOption(raw, label) {
+  const parsed = parseJsonOption(raw, label);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new CliError(`${label} must be a JSON object`, 'INVALID_JSON');
+  }
+  return parsed;
+}
+
+function jsonArrayOption(raw, label) {
+  const parsed = parseJsonOption(raw, label);
+  if (!Array.isArray(parsed)) {
+    throw new CliError(`${label} must be a JSON array`, 'INVALID_JSON');
+  }
+  return parsed;
+}
+
+function csvValues(raw) {
+  const values = Array.isArray(raw) ? raw : String(raw || '').split(',');
+  return values.flatMap((value) => String(value).split(',')).map((value) => value.trim()).filter(Boolean);
 }
 
 async function handleTools(opts) {
@@ -569,28 +898,22 @@ async function handleTools(opts) {
 }
 
 async function gatewayContext({ mutating = false } = {}) {
-  const api = require('../lib/api');
-  const config = require('../lib/config');
-  const token = require('../lib/token');
+  const store = require('../lib/store');
   const crypto = require('crypto');
 
-  const cfg = config.load();
-  const creds = await api.getValidCredentials(cfg);
-  if (!creds || !creds.access_token) {
-    throw new CliError('Not logged in. Run "filtalgo auth login" first.', 'NOT_LOGGED_IN');
+  const savedCredentials = store.load();
+  const agentSession = resolveAgentSessionSelection(store, savedCredentials, runtimeOptions);
+  if (agentSession) {
+    const context = {
+      agent_session_id: agentSession.agentSessionId,
+    };
+    if (mutating) {
+      context.idempotency_key = crypto.randomUUID();
+    }
+    return context;
   }
-  const memberId = token.memberIdFromAccessToken(creds.access_token);
-  if (!memberId) {
-    throw new CliError('OAuth access token does not contain sub. Please login again.', 'TOKEN_SUB_MISSING');
-  }
-  const context = {
-    authorization: 'Bearer',
-    member_id: memberId,
-  };
-  if (mutating) {
-    context.idempotency_key = crypto.randomUUID();
-  }
-  return context;
+
+  throw new CliError('Not logged in. Run "filtalgo auth login" first.', 'NOT_LOGGED_IN');
 }
 
 async function callGatewayTool(toolName, args, opts) {
@@ -599,7 +922,15 @@ async function callGatewayTool(toolName, args, opts) {
 }
 
 function way(opts) {
-  return opts.way || 'CART';
+  return normalizeCartWay(opts.way);
+}
+
+function normalizeCartWay(value) {
+  const normalized = String(value || 'CART').trim().toUpperCase();
+  if (!['CART', 'BUY_NOW'].includes(normalized)) {
+    throw new CliError('--way must be CART or BUY_NOW', 'INVALID_CART_WAY');
+  }
+  return normalized;
 }
 
 function intOption(value, fallback) {
@@ -623,8 +954,97 @@ function requireSupportedAfterSaleServiceType(value) {
   return normalized;
 }
 
+function normalizeLinkChannel(value) {
+  const normalized = String(value || DEFAULT_LINK_CHANNEL).trim();
+  if (!['pc_web', 'mobile_h5'].includes(normalized)) {
+    throw new CliError('link channel must be pc_web or mobile_h5', 'INVALID_LINK_CHANNEL');
+  }
+  return normalized;
+}
+
+function buyerLinksForChannel(buyerLinkTargets, channel) {
+  if (!buyerLinkTargets || typeof buyerLinkTargets !== 'object' || !channel) return {};
+  const out = {};
+  for (const [action, target] of Object.entries(buyerLinkTargets)) {
+    if (!target || typeof target !== 'object') continue;
+    const channels = target.channels && typeof target.channels === 'object' ? target.channels : {};
+    const selected = channels[channel];
+    if (selected && typeof selected === 'object' && typeof selected.url === 'string' && selected.url.trim()) {
+      out[action] = selected.url;
+    }
+  }
+  return out;
+}
+
+function applySelectedBuyerLinks(data, opts = {}) {
+  const channel = normalizeLinkChannel(opts.linkChannel);
+  if (!channel || !data || typeof data !== 'object') return data;
+  const selectedData = applyLinkChannel(data, channel);
+  if (
+    selectedData
+    && typeof selectedData === 'object'
+    && !selectedData.selected_buyer_links
+    && selectedData.result
+    && selectedData.result.selected_buyer_links
+  ) {
+    return {
+      ...selectedData,
+      selected_link_channel: selectedData.result.selected_link_channel,
+      selected_buyer_links: selectedData.result.selected_buyer_links,
+    };
+  }
+  return selectedData;
+}
+
+function applyLinkChannel(value, channel) {
+  if (Array.isArray(value)) {
+    return value.map((item) => applyLinkChannel(item, channel));
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    out[key] = key === 'buyer_link_targets' ? child : applyLinkChannel(child, channel);
+  }
+
+  const directUrl = directBuyerLinkForChannel(out.buyer_link_targets, channel);
+  if (directUrl) {
+    out.selected_link_channel = channel;
+    out.selected_url = directUrl;
+    for (const key of ['url', 'detail_url', 'handoff_url', 'payment_url']) {
+      if (typeof out[key] === 'string' && out[key].trim()) {
+        out[key] = directUrl;
+      }
+    }
+  }
+
+  const selected = buyerLinksForChannel(out.buyer_link_targets, channel);
+  if (Object.keys(selected).length > 0) {
+    out.selected_link_channel = channel;
+    out.selected_buyer_links = selected;
+    if (out.buyer_links && typeof out.buyer_links === 'object' && !Array.isArray(out.buyer_links)) {
+      out.buyer_links = { ...out.buyer_links, ...selected };
+    }
+  }
+
+  return out;
+}
+
+function directBuyerLinkForChannel(buyerLinkTargets, channel) {
+  if (!buyerLinkTargets || typeof buyerLinkTargets !== 'object' || !channel) return '';
+  const channels = buyerLinkTargets.channels && typeof buyerLinkTargets.channels === 'object'
+    ? buyerLinkTargets.channels
+    : null;
+  if (!channels) return '';
+  const selected = channels[channel];
+  if (selected && typeof selected === 'object' && typeof selected.url === 'string' && selected.url.trim()) {
+    return selected.url;
+  }
+  return '';
+}
+
 function printGatewayPayload(payload) {
-  printResult(payload);
+  printResult(applyLinkChannel(payload, normalizeLinkChannel(runtimeOptions.linkChannel)));
 }
 
 async function handleCart(args, opts) {
@@ -682,6 +1102,41 @@ async function handleCart(args, opts) {
     default:
       throw new CliError('Usage: filtalgo cart <get|add-item|update-item|remove-item|clear>', 'USAGE');
   }
+}
+
+async function handleBuyNow(args, opts) {
+  const skuId = opts.skuId || args[0];
+  if (!skuId) throw new CliError('Usage: filtalgo buy-now <sku-id> [--quantity 1]', 'USAGE');
+  const quantity = intOption(opts.quantity, 1);
+  if (quantity < 1) throw new CliError('--quantity must be a positive integer', 'USAGE');
+
+  const buyNowWay = 'BUY_NOW';
+  await callGatewayTool('shopping.cart.clear', {
+    context: await gatewayContext({ mutating: true }),
+    way: buyNowWay,
+    confirm: true,
+  }, opts);
+  const cart = await callGatewayTool('shopping.cart.add_item', {
+    context: await gatewayContext({ mutating: true }),
+    sku_id: skuId,
+    quantity,
+    way: buyNowWay,
+    cover: true,
+  }, opts);
+  const checkout = await callGatewayTool('shopping.checkout.create_from_cart', {
+    context: await gatewayContext({ mutating: true }),
+    way: buyNowWay,
+    ...(opts.checkoutId ? { checkout_id: opts.checkoutId } : {}),
+  }, opts);
+
+  return output(opts, {
+    ok: true,
+    way: buyNowWay,
+    sku_id: skuId,
+    quantity,
+    cart,
+    checkout,
+  }, () => printGatewayPayload(checkout));
 }
 
 async function handleAddress(args, opts) {
@@ -945,16 +1400,22 @@ async function handleCheckout(args, opts) {
   const sub = args[0];
 
   switch (sub) {
-    case 'create': {
-      const body = opts.body ? parseJsonOption(opts.body, '--body') : await checkoutBodyFromCart(opts);
-      const result = await callGatewayTool('shopping.checkout.create_session', {
+    case 'create':
+    case 'create-from-cart': {
+      if (sub === 'create' && opts.body) {
+        const body = jsonObjectOption(opts.body, '--body');
+        const result = await callGatewayTool('shopping.checkout.create_session', {
+          context: await gatewayContext({ mutating: true }),
+          checkout: body,
+        }, opts);
+        return output(opts, { ok: true, result }, () => printGatewayPayload(result));
+      }
+      const result = await callGatewayTool('shopping.checkout.create_from_cart', {
         context: await gatewayContext({ mutating: true }),
-        checkout: body,
+        way: way(opts),
+        ...(opts.checkoutId ? { checkout_id: opts.checkoutId } : {}),
       }, opts);
-      return output(opts, { ok: true, result }, () => {
-        console.log(`Creating checkout session: ${body.id || '-'}`);
-        printGatewayPayload(result);
-      });
+      return output(opts, { ok: true, result }, () => printGatewayPayload(result));
     }
     case 'show': {
       const id = args[1];
@@ -1012,6 +1473,7 @@ async function handleCheckout(args, opts) {
       if (handler !== 'wallet') {
         throw new CliError('Only --handler wallet is supported for prepare-payment.', 'UNSUPPORTED_HANDLER');
       }
+      const selectedLinkChannel = normalizeLinkChannel(opts.linkChannel);
       const callArgs = {
         checkout_session_id: id,
         context: await gatewayContext({ mutating: true }),
@@ -1023,14 +1485,28 @@ async function handleCheckout(args, opts) {
       const result = await callGatewayTool('shopping.checkout.prepare_payment', callArgs, opts);
       const paymentAction = result && result.payment_action ? result.payment_action : {};
       const checkoutSession = result && result.checkout_session ? result.checkout_session : {};
+      const selectedBuyerLinks = buyerLinksForChannel(result && result.buyer_link_targets, selectedLinkChannel);
       const payload = {
         ok: true,
         checkout_session_id: checkoutSession.id || id,
         trade_sn: paymentAction.trade_sn || null,
         order_sn: paymentAction.order_sn || null,
-        payment_url: paymentAction.payment_url || null,
+        payment_url: selectedBuyerLinks.payment || paymentAction.payment_url || null,
         status: paymentAction.status || 'requires_buyer_action',
       };
+      if (result && result.buyer_links) {
+        payload.buyer_links = result.buyer_links;
+      }
+      if (result && result.buyer_link_targets) {
+        payload.buyer_link_targets = result.buyer_link_targets;
+      }
+      if (selectedLinkChannel) {
+        payload.selected_link_channel = selectedLinkChannel;
+        payload.selected_buyer_links = selectedBuyerLinks;
+        if (!selectedBuyerLinks.payment) {
+          throw new CliError(`Link channel ${selectedLinkChannel} is not available for payment.`, 'LINK_CHANNEL_UNAVAILABLE');
+        }
+      }
       if (!payload.trade_sn || !payload.payment_url) {
         const messages = Array.isArray(checkoutSession.messages)
           ? checkoutSession.messages.map((message) => message.code || message.message).filter(Boolean).join(', ')
@@ -1065,84 +1541,8 @@ async function handleCheckout(args, opts) {
       return output(opts, { ok: true, result }, () => printGatewayPayload(result));
     }
     default:
-      throw new CliError('Usage: filtalgo checkout <create|show|preview-total|select-address|apply-coupon|remove-coupon|select-shipping-method|prepare-payment|complete|cancel> [id]', 'USAGE');
+      throw new CliError('Usage: filtalgo checkout <create|create-from-cart|show|preview-total|select-address|apply-coupon|remove-coupon|select-shipping-method|prepare-payment|complete|cancel> [id]', 'USAGE');
   }
-}
-
-async function checkoutBodyFromCart(opts) {
-  const cartResult = await callGatewayTool('shopping.cart.get', {
-    context: await gatewayContext(),
-    way: way(opts),
-  }, opts);
-  const cart = cartResult && cartResult.cart ? cartResult.cart : {};
-  const lineItems = checkoutLineItemsFromCart(cart);
-  if (lineItems.length === 0) {
-    throw new CliError('购物车为空或没有已选中的商品，请先添加并选中商品后再创建结算单。', 'CART_EMPTY');
-  }
-  const amount = checkoutAmountMinor(cart);
-  return {
-    id: `co_cli_${Date.now()}`,
-    currency: 'CNY',
-    line_items: lineItems,
-    totals: {
-      currency: 'CNY',
-      amount,
-    },
-    fulfillment_options: [
-      {
-        id: 'shipping',
-        selected: true,
-      },
-    ],
-    capabilities: {
-      payment: {
-        handlers: [
-          {
-            id: 'wallet',
-          },
-        ],
-      },
-    },
-  };
-}
-
-function checkoutLineItemsFromCart(cart) {
-  const normalized = Array.isArray(cart.LineItems) ? cart.LineItems : [];
-  const lineItems = normalized
-    .filter((item) => item && item.Checked !== false)
-    .map((item) => ({
-      id: String(item.SKUId || item.sku_id || item.skuId || '').trim(),
-      quantity: intOption(item.Quantity || item.quantity, 1),
-    }))
-    .filter((item) => item.id && item.quantity > 0);
-  if (lineItems.length > 0) return lineItems;
-
-  const rawItems = cart.Raw && Array.isArray(cart.Raw.skuList) ? cart.Raw.skuList : [];
-  return rawItems
-    .filter((item) => item && item.checked !== false)
-    .map((item) => {
-      const sku = item.goodsSku || {};
-      return {
-        id: String(item.skuId || sku.id || '').trim(),
-        quantity: intOption(item.num || item.quantity, 1),
-      };
-    })
-    .filter((item) => item.id && item.quantity > 0);
-}
-
-function checkoutAmountMinor(cart) {
-  const total = Number(cart.TotalPrice);
-  if (Number.isFinite(total) && total > 0) return Math.round(total * 100);
-
-  const rawItems = cart.Raw && Array.isArray(cart.Raw.skuList) ? cart.Raw.skuList : [];
-  const majorTotal = rawItems.reduce((sum, item) => {
-    if (!item || item.checked === false) return sum;
-    const sku = item.goodsSku || {};
-    const price = Number(sku.price || item.price || 0);
-    const quantity = intOption(item.num || item.quantity, 1);
-    return sum + price * quantity;
-  }, 0);
-  return Math.max(0, Math.round(majorTotal * 100));
 }
 
 async function handleCall(args, opts) {
@@ -1163,7 +1563,7 @@ async function handleCall(args, opts) {
   }
 
   const api = require('../lib/api');
-  const resp = await api.request(method, adapterPath, body);
+  const resp = await api.request(method, adapterPath, body, { authOptional: true });
 
   return output(opts, { ok: isHttpOk(resp), response: resp }, () => printResult(resp));
 }
@@ -1201,6 +1601,288 @@ function parseJsonOption(raw, label) {
   }
 }
 
+function normalizePositiveInt(raw, fallback, max) {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, max);
+}
+
+function buildSearchCall(query, opts = {}) {
+  const limit = normalizePositiveInt(opts.limit, 10, 50);
+  for (const option of ['sku', 'spu']) {
+    if (opts[option]) {
+      throw new CliError(`--${option} is no longer supported for search; use query and limit only.`, 'SEARCH_OPTION_NOT_SUPPORTED');
+    }
+  }
+  return {
+    toolName: 'search_spu_products',
+    args: { query, limit },
+  };
+}
+
+function selectSearchAdapter(query, adaptersResult, opts = {}) {
+  const adapters = Array.isArray(adaptersResult)
+    ? adaptersResult
+    : (adaptersResult && Array.isArray(adaptersResult.adapters) ? adaptersResult.adapters : []);
+  const requestedAdapter = String(opts.adapterName || '').trim();
+  const requestedCategory = String(opts.category || '').trim();
+  const normalizedQuery = normalizeSearchText(query);
+  let best = null;
+
+  for (const adapter of adapters) {
+    if (!adapter || typeof adapter !== 'object') continue;
+    const adapterName = String(adapter.adapter_name || '').trim();
+    if (requestedAdapter && adapterName !== requestedAdapter) continue;
+    const categories = Array.isArray(adapter.covered_categories) ? adapter.covered_categories : [];
+    for (const rawCategory of categories) {
+      const category = String(rawCategory || '').trim();
+      if (!category) continue;
+      const categoryScore = searchCategoryScore(requestedCategory || normalizedQuery, category, Boolean(requestedCategory));
+      if (categoryScore <= 0) continue;
+      const candidate = { adapter_name: adapterName, category, score: categoryScore };
+      if (!best || candidate.score > best.score) best = candidate;
+    }
+    if (requestedAdapter && !best && categories.length > 0 && !requestedCategory) {
+      best = { adapter_name: adapterName, category: '', score: 1 };
+    }
+  }
+  return best;
+}
+
+function normalizeSearchText(value) {
+  return String(value || '').toLowerCase().replace(/[\s，。！？、/\\|_-]+/g, '');
+}
+
+function searchCategoryScore(needle, category, exactRequested) {
+  const normalizedNeedle = normalizeSearchText(needle);
+  const normalizedCategory = normalizeSearchText(category);
+  if (!normalizedNeedle || !normalizedCategory) return 0;
+  if (exactRequested && normalizedNeedle === normalizedCategory) return 10000 + normalizedCategory.length;
+  if (normalizedNeedle.includes(normalizedCategory)) return 1000 + normalizedCategory.length;
+  const categoryParts = String(category).split(/[\/、|]/).map(normalizeSearchText).filter(Boolean);
+  const matchingPart = categoryParts.filter((part) => normalizedNeedle.includes(part) || part.includes(normalizedNeedle))
+    .sort((a, b) => b.length - a.length)[0];
+  return matchingPart ? 100 + matchingPart.length : 0;
+}
+
+function inferredCategoryFilters(category, contextResult) {
+  if (!category) return [];
+  const adapter = contextResult && contextResult.adapter;
+  const definitions = adapter && Array.isArray(adapter.filters) ? adapter.filters : [];
+  const categoryDefinition = definitions.find((definition) => definition && definition.field === 'category');
+  if (!categoryDefinition) return [];
+  const optionValues = Array.isArray(categoryDefinition.options)
+    ? categoryDefinition.options.map((option) => String(option && option.value || ''))
+    : [];
+  if (optionValues.length > 0 && !optionValues.includes(category)) return [];
+  const operators = Array.isArray(categoryDefinition.operators) ? categoryDefinition.operators : [];
+  if (!operators.some((operator) => operator && operator.op === 'eq')) return [];
+  return [{ field: 'category', op: 'eq', source: 'user', value: category }];
+}
+
+function resultSetIdentity(result) {
+  if (!result || typeof result !== 'object') return null;
+  const sessionId = String(result.session_id || '').trim();
+  const resultHandle = String(result.result_handle || '').trim();
+  return sessionId && resultHandle ? { session_id: sessionId, result_handle: resultHandle } : null;
+}
+
+async function hydrateSearchResult(api, result, limit, toolsUsed) {
+  if (!result || typeof result !== 'object') return null;
+  const identity = resultSetIdentity(result);
+  if (!identity || !Array.isArray(result.items) || result.items.length === 0) return null;
+
+  try {
+    const hydrated = unwrapMcpToolResult(await api.mcpCall('hydrate_products', {
+      ...identity,
+      limit,
+    }, { authOptional: true }));
+    if (Array.isArray(toolsUsed)) toolsUsed.push('hydrate_products');
+    return hydrated;
+  } catch {
+    // Product links are an optional enrichment. Preserve a successful search
+    // result when the follow-up hydrate request is unavailable.
+    return null;
+  }
+}
+
+function buildSearchResponse(query, result, workflow = {}) {
+  const cards = result && Array.isArray(result.cards)
+    ? result.cards
+    : (result && Array.isArray(result.items) ? result.items : []);
+  const items = cards.map((card, index) => searchResponseItem(card, index, query));
+  return {
+    status: items.length > 0 ? 'results' : 'no_results',
+    query,
+    count: items.length,
+    workflow,
+    items,
+    response_rules: {
+      one_item_per_spu: true,
+      preserve_tool_order: true,
+      never_render_empty_table: true,
+      unsupported_claims_forbidden: true,
+    },
+  };
+}
+
+function searchResponseItem(card, index, query) {
+  const skus = card && Array.isArray(card.skus) ? card.skus : [];
+  const recommendedSkuID = String(card && (card.matched_sku_id || card.default_sku_id) || searchSKUId(skus[0]) || '');
+  const recommendedSKU = skus.find((sku) => searchSKUId(sku) === recommendedSkuID) || skus[0] || {};
+  const price = firstDefined(recommendedSKU.price, card && card.price);
+  const currency = String(recommendedSKU.currency || card && card.currency || 'CNY');
+  const stock = firstDefined(recommendedSKU.inventory, recommendedSKU.stock, card && card.inventory, card && card.stock);
+  const detailURL = firstNonEmpty(
+    recommendedSKU.selected_url,
+    recommendedSKU.url,
+    recommendedSKU.detail_url,
+    card && card.selected_url,
+    card && card.url,
+    card && card.detail_url,
+    selectedBuyerLink(card && card.buyer_link_targets),
+  );
+  return {
+    rank: index + 1,
+    spu_id: searchProductID(card),
+    name: String(card && (card.title || card.name) || recommendedSKU.title || '').trim(),
+    price: price === undefined ? null : price,
+    price_text: price === undefined ? '' : `${currency === 'CNY' ? '¥' : `${currency} `}${price}`,
+    stock: stock === undefined ? null : stock,
+    recommended_sku_id: recommendedSkuID,
+    recommended_spec: recommendedSKU.specs && typeof recommendedSKU.specs === 'object' ? recommendedSKU.specs : {},
+    other_specs: skus.filter((sku) => searchSKUId(sku) !== recommendedSkuID).map((sku) => sku.specs || {}),
+    detail_url: detailURL,
+    match_basis: `搜索服务针对“${query}”返回并排序；未返回的功效或肤感信息不得推断`,
+  };
+}
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
+function firstNonEmpty(...values) {
+  const value = values.find((candidate) => typeof candidate === 'string' && candidate.trim());
+  return value ? value.trim() : '';
+}
+
+function selectedBuyerLink(targets) {
+  if (!targets || typeof targets !== 'object') return '';
+  const channel = normalizeLinkChannel(runtimeOptions.linkChannel);
+  const channels = targets.channels && typeof targets.channels === 'object' ? targets.channels : {};
+  return firstNonEmpty(
+    buyerLinkURL(channels[channel]),
+    buyerLinkURL(targets[channel]),
+    buyerLinkURL(targets.default),
+    buyerLinkURL(targets.url),
+  );
+}
+
+function buyerLinkURL(value) {
+  if (typeof value === 'string') return value;
+  return value && typeof value === 'object' && typeof value.url === 'string' ? value.url : '';
+}
+
+function normalizeSearchResult(result, hydratedResult) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+  if (!Array.isArray(result.items)) return result;
+
+  const hydratedItems = hydratedResult && Array.isArray(hydratedResult.items) ? hydratedResult.items : [];
+  const hydratedByProductID = new Map();
+  for (const item of hydratedItems) {
+    const productID = searchProductID(item);
+    if (productID) hydratedByProductID.set(productID, item);
+  }
+
+  // Keep the established CLI card collection available while exposing the
+  // result-set payload returned by the gateway. Link targets are added only to
+  // cards so the raw result-set items remain unchanged.
+  const cards = result.items.map((item, index) => {
+    const hydratedItem = hydratedByProductID.get(searchProductID(item)) || hydratedItems[index];
+    return addBuyerLinkTargets(item, hydratedItem);
+  });
+  return { ...result, cards };
+}
+
+function searchProductID(item) {
+  if (!item || typeof item !== 'object') return '';
+  for (const key of ['spu_id', 'spuId', 'goods_id', 'goodsId', 'id']) {
+    const value = item[key];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+function addBuyerLinkTargets(card, hydratedItem) {
+  if (!hydratedItem || typeof hydratedItem !== 'object') return card;
+  const targets = hydratedItem.buyer_link_targets || card.buyer_link_targets;
+  const skus = Array.isArray(card.skus)
+    ? card.skus.map((sku) => addSKUBuyerLinkTargets(sku, card, targets))
+    : card.skus;
+  if (!targets && !Array.isArray(skus)) return card;
+  return {
+    ...card,
+    ...(targets ? { buyer_link_targets: targets } : {}),
+    ...(Array.isArray(skus) ? { skus } : {}),
+  };
+}
+
+function addSKUBuyerLinkTargets(sku, card, productTargets) {
+  if (!sku || typeof sku !== 'object' || sku.buyer_link_targets) return sku;
+  const targets = skuBuyerLinkTargets(sku, card, productTargets);
+  return targets ? { ...sku, buyer_link_targets: targets } : sku;
+}
+
+function skuBuyerLinkTargets(sku, card, productTargets) {
+  const skuID = searchSKUId(sku);
+  if (!skuID || !productTargets || typeof productTargets !== 'object') return null;
+  const channels = productTargets.channels && typeof productTargets.channels === 'object' ? productTargets.channels : {};
+  const productID = searchProductID(sku) || searchProductID(card);
+  const skuChannels = {};
+  for (const [channel, target] of Object.entries(channels)) {
+    if (!target || typeof target !== 'object' || typeof target.url !== 'string') continue;
+    const url = productDetailURLForSKU(target.url, productID, skuID);
+    if (url) skuChannels[channel] = { ...target, url };
+  }
+  if (Object.keys(skuChannels).length === 0) return null;
+
+  const defaultChannel = skuChannels[productTargets.default_channel]
+    ? productTargets.default_channel
+    : Object.keys(skuChannels)[0];
+  return { default_channel: defaultChannel, channels: skuChannels };
+}
+
+function searchSKUId(item) {
+  if (!item || typeof item !== 'object') return '';
+  for (const key of ['sku_id', 'skuId', 'default_sku_id', 'defaultSkuId', 'id']) {
+    const value = item[key];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+function productDetailURLForSKU(rawURL, productID, skuID) {
+  try {
+    const parsed = new URL(rawURL);
+    setProductLinkQueryParam(parsed.searchParams, 'skuId', skuID);
+    if (productID) setProductLinkQueryParam(parsed.searchParams, 'goodsId', productID);
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function setProductLinkQueryParam(params, expectedKey, value) {
+  const normalizedExpectedKey = expectedKey.replace(/_/g, '').toLowerCase();
+  for (const key of params.keys()) {
+    if (key.replace(/_/g, '').toLowerCase() === normalizedExpectedKey) {
+      params.set(key, value);
+      return;
+    }
+  }
+  params.set(expectedKey, value);
+}
+
 function unwrapMcpToolResult(result) {
   if (!result || !Array.isArray(result.content)) {
     return result || {};
@@ -1217,8 +1899,9 @@ function unwrapMcpToolResult(result) {
 }
 
 function output(opts, data, humanPrinter) {
+  const selectedData = applySelectedBuyerLinks(data, opts);
   if (opts.json) {
-    printJson(data);
+    printJson(selectedData);
   } else {
     humanPrinter();
   }
@@ -1249,13 +1932,35 @@ function printJson(value) {
   console.log(JSON.stringify(value, null, 2));
 }
 
+function setRuntimeOptionsForTest(opts = {}) {
+  runtimeOptions = { ...opts };
+  if (opts.agentSessionId) {
+    process.env.FILTALGO_CLI_EFFECTIVE_AGENT_SESSION_ID = opts.agentSessionId;
+  } else {
+    delete process.env.FILTALGO_CLI_EFFECTIVE_AGENT_SESSION_ID;
+  }
+}
+
+module.exports = {
+  _gatewayContext: gatewayContext,
+  _resolveAgentSessionSelection: resolveAgentSessionSelection,
+  _buildSearchCall: buildSearchCall,
+  _selectSearchAdapter: selectSearchAdapter,
+  _inferredCategoryFilters: inferredCategoryFilters,
+  _buildSearchResponse: buildSearchResponse,
+  _hydrateSearchResult: hydrateSearchResult,
+  _normalizeSearchResult: normalizeSearchResult,
+  _normalizeCartWay: normalizeCartWay,
+  _setRuntimeOptionsForTest: setRuntimeOptionsForTest,
+};
+
 main();
 
   }
 },
 1: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/lib/config.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/lib",
+  filename: "/snapshot/filtalgo-cli/lib/config.js",
+  dirname: "/snapshot/filtalgo-cli/lib",
   deps: {"fs":null,"path":null,"os":null,"yaml":2},
   factory: function(require, module, exports, __filename, __dirname) {
 const fs = require('fs');
@@ -1267,11 +1972,7 @@ const CONFIG_DIR = path.join(os.homedir(), '.filtalgo');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.yaml');
 
 const DEFAULT_CONFIG = {
-  profile: 'default',
-  authorize_url: 'https://dev-buyer.filtalgo.com/oauth/authorize',
-  token_url: 'https://dev-service.filtalgo.com/oauth2/token',
-  client_id: 'cli_3d4193853d8e31ccfaa4490f5016e146',
-  client_secret: 'sec_91c3f98687b6b1fda8949c8f05788ef5b88b30c169cc2bcdf72da3d257461f18',
+  profile: 'prod',
   scopes: [
     'openid',
     'profile',
@@ -1280,15 +1981,19 @@ const DEFAULT_CONFIG = {
     'cart:write',
     'address:read',
   ],
-  redirect_port: 19832,
-  adapter_url: 'https://dev-home.filtalgo.com',
+  adapter_url: 'https://filtalgo.com',
+  device_client_id: 'filtalgo-cli-device',
+  device_start_path: '/agent-auth/device/start',
+  device_status_path: '/agent-auth/device/status',
+  device_token_path: '/agent-auth/device/token',
+  device_revoke_path: '/agent-auth/session/revoke',
 };
 
 const CONFIG_PROFILES = {
-  default: DEFAULT_CONFIG,
+  prod: DEFAULT_CONFIG,
 };
 
-const DEFAULT_PROFILE = 'default';
+const DEFAULT_PROFILE = 'prod';
 
 function ensureConfigDir() {
   if (!fs.existsSync(CONFIG_DIR)) {
@@ -1306,12 +2011,12 @@ function load() {
 
   const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
   const parsed = YAML.parse(raw) || {};
-  return { ...DEFAULT_CONFIG, ...parsed, profile: 'default' };
+  return sanitizeConfig({ ...DEFAULT_CONFIG, ...parsed, profile: 'prod' });
 }
 
 function save(config) {
   ensureConfigDir();
-  const yaml = YAML.stringify({ ...config, profile: 'default' });
+  const yaml = YAML.stringify(sanitizeConfig({ ...config, profile: 'prod' }));
   fs.writeFileSync(CONFIG_FILE, yaml, { encoding: 'utf8', mode: 0o600 });
 }
 
@@ -1327,21 +2032,38 @@ function setValue(key, value) {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-  } else if (key === 'redirect_port') {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed)) {
-      throw new Error('redirect_port must be a number');
-    }
-    cfg.redirect_port = parsed;
   } else {
     cfg[key] = value;
   }
   save(cfg);
-  return cfg;
+  return sanitizeConfig(cfg);
 }
 
 function getConfigDir() {
   return CONFIG_DIR;
+}
+
+function sanitizeConfig(config) {
+  const allowed = [
+    'profile',
+    'scopes',
+    'adapter_url',
+    'device_client_id',
+    'device_client_secret',
+    'device_audience',
+    'device_source_platform',
+    'device_start_path',
+    'device_status_path',
+    'device_token_path',
+    'device_revoke_path',
+  ];
+  const out = {};
+  for (const key of allowed) {
+    if (config[key] !== undefined) {
+      out[key] = Array.isArray(config[key]) ? [...config[key]] : config[key];
+    }
+  }
+  return out;
 }
 
 module.exports = {
@@ -1359,8 +2081,8 @@ module.exports = {
   }
 },
 2: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/index.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist",
+  filename: "/snapshot/filtalgo-cli/external/index.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./compose/composer.js":3,"./doc/Document.js":7,"./schema/Schema.js":25,"./errors.js":50,"./nodes/Alias.js":8,"./nodes/identity.js":5,"./nodes/Pair.js":16,"./nodes/Scalar.js":15,"./nodes/YAMLMap.js":27,"./nodes/YAMLSeq.js":30,"./parse/cst.js":66,"./parse/lexer.js":70,"./parse/line-counter.js":71,"./parse/parser.js":72,"./public-api.js":73,"./visit.js":6},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -1417,13 +2139,13 @@ exports.visitAsync = visit.visitAsync;
   }
 },
 3: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/composer.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
-  deps: {"process":null,"../doc/directives.js":4,"../doc/Document.js":7,"../errors.js":50,"../nodes/identity.js":5,"./compose-doc.js":51,"./resolve-end.js":61},
+  filename: "/snapshot/filtalgo-cli/external/composer.js",
+  dirname: "/snapshot/filtalgo-cli/external",
+  deps: {"node:process":null,"../doc/directives.js":4,"../doc/Document.js":7,"../errors.js":50,"../nodes/identity.js":5,"./compose-doc.js":51,"./resolve-end.js":61},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_process = require('process');
+var node_process = require('node:process');
 var directives = require('../doc/directives.js');
 var Document = require('../doc/Document.js');
 var errors = require('../errors.js');
@@ -1647,8 +2369,8 @@ exports.Composer = Composer;
   }
 },
 4: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc/directives.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc",
+  filename: "/snapshot/filtalgo-cli/external/directives.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"../visit.js":6},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -1833,8 +2555,8 @@ exports.Directives = Directives;
   }
 },
 5: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/identity.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/identity.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -1894,8 +2616,8 @@ exports.isSeq = isSeq;
   }
 },
 6: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/visit.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist",
+  filename: "/snapshot/filtalgo-cli/external/visit.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./nodes/identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2138,8 +2860,8 @@ exports.visitAsync = visitAsync;
   }
 },
 7: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc/Document.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc",
+  filename: "/snapshot/filtalgo-cli/external/Document.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Alias.js":8,"../nodes/Collection.js":13,"../nodes/identity.js":5,"../nodes/Pair.js":16,"../nodes/toJS.js":12,"../schema/Schema.js":25,"../stringify/stringifyDocument.js":49,"./anchors.js":9,"./applyReviver.js":11,"./createNode.js":14,"./directives.js":4},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2483,8 +3205,8 @@ exports.Document = Document;
   }
 },
 8: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/Alias.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/Alias.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/anchors.js":9,"../visit.js":6,"./identity.js":5,"./Node.js":10,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2509,38 +3231,23 @@ class Alias extends Node.NodeBase {
      * Resolve the value of this alias within `doc`, finding the last
      * instance of the `source` anchor before this node.
      */
-    resolve(doc, ctx) {
-        if (ctx?.maxAliasCount === 0)
-            throw new ReferenceError('Alias resolution is disabled');
-        let nodes;
-        if (ctx?.aliasResolveCache) {
-            nodes = ctx.aliasResolveCache;
-        }
-        else {
-            nodes = [];
-            visit.visit(doc, {
-                Node: (_key, node) => {
-                    if (identity.isAlias(node) || identity.hasAnchor(node))
-                        nodes.push(node);
-                }
-            });
-            if (ctx)
-                ctx.aliasResolveCache = nodes;
-        }
+    resolve(doc) {
         let found = undefined;
-        for (const node of nodes) {
-            if (node === this)
-                break;
-            if (node.anchor === this.source)
-                found = node;
-        }
+        visit.visit(doc, {
+            Node: (_key, node) => {
+                if (node === this)
+                    return visit.visit.BREAK;
+                if (node.anchor === this.source)
+                    found = node;
+            }
+        });
         return found;
     }
     toJSON(_arg, ctx) {
         if (!ctx)
             return { source: this.source };
         const { anchors, doc, maxAliasCount } = ctx;
-        const source = this.resolve(doc, ctx);
+        const source = this.resolve(doc);
         if (!source) {
             const msg = `Unresolved alias (the anchor must be set before the alias): ${this.source}`;
             throw new ReferenceError(msg);
@@ -2552,7 +3259,7 @@ class Alias extends Node.NodeBase {
             data = anchors.get(source);
         }
         /* istanbul ignore if */
-        if (data?.res === undefined) {
+        if (!data || data.res === undefined) {
             const msg = 'This should not happen: Alias anchor was not resolved?';
             throw new ReferenceError(msg);
         }
@@ -2609,8 +3316,8 @@ exports.Alias = Alias;
   }
 },
 9: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc/anchors.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc",
+  filename: "/snapshot/filtalgo-cli/external/anchors.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"../visit.js":6},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2656,7 +3363,8 @@ function createNodeAnchors(doc, prefix) {
     return {
         onAnchor: (source) => {
             aliasObjects.push(source);
-            prevAnchors ?? (prevAnchors = anchorNames(doc));
+            if (!prevAnchors)
+                prevAnchors = anchorNames(doc);
             const anchor = findNewAnchor(prefix, prevAnchors);
             prevAnchors.add(anchor);
             return anchor;
@@ -2693,8 +3401,8 @@ exports.findNewAnchor = findNewAnchor;
   }
 },
 10: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/Node.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/Node.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/applyReviver.js":11,"./identity.js":5,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2741,8 +3449,8 @@ exports.NodeBase = NodeBase;
   }
 },
 11: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc/applyReviver.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc",
+  filename: "/snapshot/filtalgo-cli/external/applyReviver.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2806,8 +3514,8 @@ exports.applyReviver = applyReviver;
   }
 },
 12: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/toJS.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/toJS.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2853,8 +3561,8 @@ exports.toJS = toJS;
   }
 },
 13: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/Collection.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/Collection.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/createNode.js":14,"./identity.js":5,"./Node.js":10},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3012,8 +3720,8 @@ exports.isEmptyPath = isEmptyPath;
   }
 },
 14: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc/createNode.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/doc",
+  filename: "/snapshot/filtalgo-cli/external/createNode.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Alias.js":8,"../nodes/identity.js":5,"../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3058,7 +3766,8 @@ function createNode(value, tagName, ctx) {
     if (aliasDuplicateObjects && value && typeof value === 'object') {
         ref = sourceObjects.get(value);
         if (ref) {
-            ref.anchor ?? (ref.anchor = onAnchor(value));
+            if (!ref.anchor)
+                ref.anchor = onAnchor(value);
             return new Alias.Alias(ref.anchor);
         }
         else {
@@ -3110,8 +3819,8 @@ exports.createNode = createNode;
   }
 },
 15: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/Scalar.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/Scalar.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./identity.js":5,"./Node.js":10,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3145,8 +3854,8 @@ exports.isScalarValue = isScalarValue;
   }
 },
 16: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/Pair.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/Pair.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/createNode.js":14,"../stringify/stringifyPair.js":17,"./addPairToJSMap.js":22,"./identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3192,8 +3901,8 @@ exports.createPair = createPair;
   }
 },
 17: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyPair.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringifyPair.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"../nodes/Scalar.js":15,"./stringify.js":18,"./stringifyComment.js":19},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3301,7 +4010,7 @@ function stringifyPair({ key, value }, ctx, onComment, onChompKeep) {
             ws += `\n${stringifyComment.indentComment(cs, ctx.indent)}`;
         }
         if (valueStr === '' && !ctx.inFlow) {
-            if (ws === '\n' && valueComment)
+            if (ws === '\n')
                 ws = '\n\n';
         }
         else {
@@ -3352,8 +4061,8 @@ exports.stringifyPair = stringifyPair;
   }
 },
 18: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringify.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringify.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/anchors.js":9,"../nodes/identity.js":5,"./stringifyComment.js":19,"./stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3380,7 +4089,6 @@ function createStringifyContext(doc, options) {
         nullStr: 'null',
         simpleKeys: false,
         singleQuote: null,
-        trailingComma: false,
         trueStr: 'true',
         verifyAliasOrder: true
     }, doc.schema.toStringOptions, options);
@@ -3429,7 +4137,7 @@ function getTagObject(tags, item) {
         tagObj = tags.find(t => t.nodeClass && obj instanceof t.nodeClass);
     }
     if (!tagObj) {
-        const name = obj?.constructor?.name ?? (obj === null ? 'null' : typeof obj);
+        const name = obj?.constructor?.name ?? typeof obj;
         throw new Error(`Tag not resolved for ${name} value`);
     }
     return tagObj;
@@ -3444,7 +4152,7 @@ function stringifyProps(node, tagObj, { anchors: anchors$1, doc }) {
         anchors$1.add(anchor);
         props.push(`&${anchor}`);
     }
-    const tag = node.tag ?? (tagObj.default ? null : tagObj.tag);
+    const tag = node.tag ? node.tag : tagObj.default ? null : tagObj.tag;
     if (tag)
         props.push(doc.directives.tagString(tag));
     return props.join(' ');
@@ -3470,7 +4178,8 @@ function stringify(item, ctx, onComment, onChompKeep) {
     const node = identity.isNode(item)
         ? item
         : ctx.doc.createNode(item, { onTagObj: o => (tagObj = o) });
-    tagObj ?? (tagObj = getTagObject(ctx.doc.schema.tags, node));
+    if (!tagObj)
+        tagObj = getTagObject(ctx.doc.schema.tags, node);
     const props = stringifyProps(node, tagObj, ctx);
     if (props.length > 0)
         ctx.indentAtStart = (ctx.indentAtStart ?? 0) + props.length + 1;
@@ -3492,8 +4201,8 @@ exports.stringify = stringify;
   }
 },
 19: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyComment.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringifyComment.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3524,8 +4233,8 @@ exports.stringifyComment = stringifyComment;
   }
 },
 20: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyString.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringifyString.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Scalar.js":15,"./foldFlowLines.js":21},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3691,7 +4400,7 @@ function blockString({ comment, type, value }, ctx, onComment, onChompKeep) {
     const { blockQuote, commentString, lineWidth } = ctx.options;
     // 1. Block can't end in whitespace unless the last line is non-empty.
     // 2. Strings consisting of only whitespace are best rendered explicitly.
-    if (!blockQuote || /\n[\t ]+$/.test(value)) {
+    if (!blockQuote || /\n[\t ]+$/.test(value) || /^\s*$/.test(value)) {
         return quotedString(value, ctx);
     }
     const indent = ctx.indent ||
@@ -3785,9 +4494,10 @@ function plainString(item, ctx, onComment, onChompKeep) {
         (inFlow && /[[\]{},]/.test(value))) {
         return quotedString(value, ctx);
     }
-    if (/^[\n\t ,[\]{}#&*!|>'"%@`]|^[?-]$|^[?-][ \t]|[\n:][ \t]|[ \t]\n|[\n\t ]#|[\n\t :]$/.test(value)) {
+    if (!value ||
+        /^[\n\t ,[\]{}#&*!|>'"%@`]|^[?-]$|^[?-][ \t]|[\n:][ \t]|[ \t]\n|[\n\t ]#|[\n\t :]$/.test(value)) {
         // not allowed:
-        // - '-' or '?'
+        // - empty string, '-' or '?'
         // - start with an indicator character (except [?:-]) or /[?-] /
         // - '\n ', ': ' or ' \n' anywhere
         // - '#' not preceded by a non-space char
@@ -3870,8 +4580,8 @@ exports.stringifyString = stringifyString;
   }
 },
 21: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/foldFlowLines.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/foldFlowLines.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4029,8 +4739,8 @@ exports.foldFlowLines = foldFlowLines;
   }
 },
 22: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/addPairToJSMap.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/addPairToJSMap.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../log.js":23,"../schema/yaml-1.1/merge.js":24,"../stringify/stringify.js":18,"./identity.js":5,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4074,7 +4784,6 @@ function addPairToJSMap(ctx, map, { key, value }) {
 function stringifyKey(key, jsKey, ctx) {
     if (jsKey === null)
         return '';
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
     if (typeof jsKey !== 'object')
         return String(jsKey);
     if (identity.isNode(key) && ctx?.doc) {
@@ -4102,13 +4811,13 @@ exports.addPairToJSMap = addPairToJSMap;
   }
 },
 23: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/log.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist",
-  deps: {"process":null},
+  filename: "/snapshot/filtalgo-cli/external/log.js",
+  dirname: "/snapshot/filtalgo-cli/external",
+  deps: {"node:process":null},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_process = require('process');
+var node_process = require('node:process');
 
 function debug(logLevel, ...messages) {
     if (logLevel === 'debug')
@@ -4129,8 +4838,8 @@ exports.warn = warn;
   }
 },
 24: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/merge.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/merge.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/identity.js":5,"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4163,18 +4872,18 @@ const isMergeKey = (ctx, key) => (merge.identify(key) ||
         merge.identify(key.value))) &&
     ctx?.doc.schema.tags.some(tag => tag.tag === merge.tag && tag.default);
 function addMergeToJSMap(ctx, map, value) {
-    const source = resolveAliasValue(ctx, value);
-    if (identity.isSeq(source))
-        for (const it of source.items)
+    value = ctx && identity.isAlias(value) ? value.resolve(ctx.doc) : value;
+    if (identity.isSeq(value))
+        for (const it of value.items)
             mergeValue(ctx, map, it);
-    else if (Array.isArray(source))
-        for (const it of source)
+    else if (Array.isArray(value))
+        for (const it of value)
             mergeValue(ctx, map, it);
     else
-        mergeValue(ctx, map, source);
+        mergeValue(ctx, map, value);
 }
 function mergeValue(ctx, map, value) {
-    const source = resolveAliasValue(ctx, value);
+    const source = ctx && identity.isAlias(value) ? value.resolve(ctx.doc) : value;
     if (!identity.isMap(source))
         throw new Error('Merge sources must be maps or map aliases');
     const srcMap = source.toJSON(null, ctx, Map);
@@ -4197,9 +4906,6 @@ function mergeValue(ctx, map, value) {
     }
     return map;
 }
-function resolveAliasValue(ctx, value) {
-    return ctx && identity.isAlias(value) ? value.resolve(ctx.doc, ctx) : value;
-}
 
 exports.addMergeToJSMap = addMergeToJSMap;
 exports.isMergeKey = isMergeKey;
@@ -4208,8 +4914,8 @@ exports.merge = merge;
   }
 },
 25: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/Schema.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema",
+  filename: "/snapshot/filtalgo-cli/external/Schema.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"./common/map.js":26,"./common/seq.js":29,"./common/string.js":31,"./tags.js":32},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4255,8 +4961,8 @@ exports.Schema = Schema;
   }
 },
 26: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common/map.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common",
+  filename: "/snapshot/filtalgo-cli/external/map.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/identity.js":5,"../../nodes/YAMLMap.js":27},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4282,8 +4988,8 @@ exports.map = map;
   }
 },
 27: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/YAMLMap.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/YAMLMap.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../stringify/stringifyCollection.js":28,"./addPairToJSMap.js":22,"./Collection.js":13,"./identity.js":5,"./Pair.js":16,"./Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4437,8 +5143,8 @@ exports.findPair = findPair;
   }
 },
 28: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyCollection.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringifyCollection.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"./stringify.js":18,"./stringifyComment.js":19},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4547,22 +5253,12 @@ function stringifyFlowCollection({ items }, ctx, { flowChars, itemIndent }) {
         if (comment)
             reqNewline = true;
         let str = stringify.stringify(item, itemCtx, () => (comment = null));
-        reqNewline || (reqNewline = lines.length > linesAtValue || str.includes('\n'));
-        if (i < items.length - 1) {
+        if (i < items.length - 1)
             str += ',';
-        }
-        else if (ctx.options.trailingComma) {
-            if (ctx.options.lineWidth > 0) {
-                reqNewline || (reqNewline = lines.reduce((sum, line) => sum + line.length + 2, 2) +
-                    (str.length + 2) >
-                    ctx.options.lineWidth);
-            }
-            if (reqNewline) {
-                str += ',';
-            }
-        }
         if (comment)
             str += stringifyComment.lineComment(str, itemIndent, commentString(comment));
+        if (!reqNewline && (lines.length > linesAtValue || str.includes('\n')))
+            reqNewline = true;
         lines.push(str);
         linesAtValue = lines.length;
     }
@@ -4600,8 +5296,8 @@ exports.stringifyCollection = stringifyCollection;
   }
 },
 29: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common/seq.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common",
+  filename: "/snapshot/filtalgo-cli/external/seq.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/identity.js":5,"../../nodes/YAMLSeq.js":30},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4627,8 +5323,8 @@ exports.seq = seq;
   }
 },
 30: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes/YAMLSeq.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/nodes",
+  filename: "/snapshot/filtalgo-cli/external/YAMLSeq.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/createNode.js":14,"../stringify/stringifyCollection.js":28,"./Collection.js":13,"./identity.js":5,"./Scalar.js":15,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4750,8 +5446,8 @@ exports.YAMLSeq = YAMLSeq;
   }
 },
 31: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common/string.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common",
+  filename: "/snapshot/filtalgo-cli/external/string.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../stringify/stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4774,8 +5470,8 @@ exports.string = string;
   }
 },
 32: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/tags.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema",
+  filename: "/snapshot/filtalgo-cli/external/tags.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./common/map.js":26,"./common/null.js":33,"./common/seq.js":29,"./common/string.js":31,"./core/bool.js":34,"./core/float.js":35,"./core/int.js":37,"./core/schema.js":38,"./json/schema.js":39,"./yaml-1.1/binary.js":40,"./yaml-1.1/merge.js":24,"./yaml-1.1/omap.js":41,"./yaml-1.1/pairs.js":42,"./yaml-1.1/schema.js":43,"./yaml-1.1/set.js":47,"./yaml-1.1/timestamp.js":48},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4881,8 +5577,8 @@ exports.getTags = getTags;
   }
 },
 33: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common/null.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/common",
+  filename: "/snapshot/filtalgo-cli/external/null.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4906,8 +5602,8 @@ exports.nullTag = nullTag;
   }
 },
 34: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core/bool.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core",
+  filename: "/snapshot/filtalgo-cli/external/bool.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4935,8 +5631,8 @@ exports.boolTag = boolTag;
   }
 },
 35: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core/float.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core",
+  filename: "/snapshot/filtalgo-cli/external/float.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/Scalar.js":15,"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4990,8 +5686,8 @@ exports.floatNaN = floatNaN;
   }
 },
 36: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyNumber.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringifyNumber.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5002,12 +5698,11 @@ function stringifyNumber({ format, minFractionDigits, tag, value }) {
     const num = typeof value === 'number' ? value : Number(value);
     if (!isFinite(num))
         return isNaN(num) ? '.nan' : num < 0 ? '-.inf' : '.inf';
-    let n = Object.is(value, -0) ? '-0' : JSON.stringify(value);
+    let n = JSON.stringify(value);
     if (!format &&
         minFractionDigits &&
         (!tag || tag === 'tag:yaml.org,2002:float') &&
-        /^-?\d/.test(n) &&
-        !n.includes('e')) {
+        /^\d/.test(n)) {
         let i = n.indexOf('.');
         if (i < 0) {
             i = n.length;
@@ -5025,8 +5720,8 @@ exports.stringifyNumber = stringifyNumber;
   }
 },
 37: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core/int.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core",
+  filename: "/snapshot/filtalgo-cli/external/int.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5075,8 +5770,8 @@ exports.intOct = intOct;
   }
 },
 38: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core/schema.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/core",
+  filename: "/snapshot/filtalgo-cli/external/schema.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../common/map.js":26,"../common/null.js":33,"../common/seq.js":29,"../common/string.js":31,"./bool.js":34,"./float.js":35,"./int.js":37},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5108,8 +5803,8 @@ exports.schema = schema;
   }
 },
 39: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/json/schema.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/json",
+  filename: "/snapshot/filtalgo-cli/external/schema.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/Scalar.js":15,"../common/map.js":26,"../common/seq.js":29},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5180,13 +5875,13 @@ exports.schema = schema;
   }
 },
 40: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/binary.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
-  deps: {"buffer":null,"../../nodes/Scalar.js":15,"../../stringify/stringifyString.js":20},
+  filename: "/snapshot/filtalgo-cli/external/binary.js",
+  dirname: "/snapshot/filtalgo-cli/external",
+  deps: {"node:buffer":null,"../../nodes/Scalar.js":15,"../../stringify/stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_buffer = require('buffer');
+var node_buffer = require('node:buffer');
 var Scalar = require('../../nodes/Scalar.js');
 var stringifyString = require('../../stringify/stringifyString.js');
 
@@ -5239,7 +5934,8 @@ const binary = {
         else {
             throw new Error('This environment does not support writing binary tags; either Buffer or btoa is required');
         }
-        type ?? (type = Scalar.Scalar.BLOCK_LITERAL);
+        if (!type)
+            type = Scalar.Scalar.BLOCK_LITERAL;
         if (type !== Scalar.Scalar.QUOTE_DOUBLE) {
             const lineWidth = Math.max(ctx.options.lineWidth - ctx.indent.length, ctx.options.minContentWidth);
             const n = Math.ceil(str.length / lineWidth);
@@ -5258,8 +5954,8 @@ exports.binary = binary;
   }
 },
 41: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/omap.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/omap.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/identity.js":5,"../../nodes/toJS.js":12,"../../nodes/YAMLMap.js":27,"../../nodes/YAMLSeq.js":30,"./pairs.js":42},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5343,8 +6039,8 @@ exports.omap = omap;
   }
 },
 42: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/pairs.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/pairs.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/identity.js":5,"../../nodes/Pair.js":16,"../../nodes/Scalar.js":15,"../../nodes/YAMLSeq.js":30},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5433,8 +6129,8 @@ exports.resolvePairs = resolvePairs;
   }
 },
 43: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/schema.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/schema.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../common/map.js":26,"../common/null.js":33,"../common/seq.js":29,"../common/string.js":31,"./binary.js":40,"./bool.js":44,"./float.js":45,"./int.js":46,"./merge.js":24,"./omap.js":41,"./pairs.js":42,"./set.js":47,"./timestamp.js":48},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5482,8 +6178,8 @@ exports.schema = schema;
   }
 },
 44: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/bool.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/bool.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5519,8 +6215,8 @@ exports.trueTag = trueTag;
   }
 },
 45: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/float.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/float.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/Scalar.js":15,"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5577,8 +6273,8 @@ exports.floatNaN = floatNaN;
   }
 },
 46: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/int.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/int.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5661,8 +6357,8 @@ exports.intOct = intOct;
   }
 },
 47: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/set.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/set.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../nodes/identity.js":5,"../../nodes/Pair.js":16,"../../nodes/YAMLMap.js":27},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5765,8 +6461,8 @@ exports.set = set;
   }
 },
 48: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  filename: "/snapshot/filtalgo-cli/external/timestamp.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5878,8 +6574,8 @@ exports.timestamp = timestamp;
   }
 },
 49: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyDocument.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/stringify",
+  filename: "/snapshot/filtalgo-cli/external/stringifyDocument.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"./stringify.js":18,"./stringifyComment.js":19},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5973,8 +6669,8 @@ exports.stringifyDocument = stringifyDocument;
   }
 },
 50: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/errors.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist",
+  filename: "/snapshot/filtalgo-cli/external/errors.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6027,7 +6723,7 @@ const prettifyError = (src, lc) => (error) => {
     if (/[^ ]/.test(lineStr)) {
         let count = 1;
         const end = error.linePos[1];
-        if (end?.line === line && end.col > col) {
+        if (end && end.line === line && end.col > col) {
             count = Math.max(1, Math.min(end.col - col, 80 - ci));
         }
         const pointer = ' '.repeat(ci) + '^'.repeat(count);
@@ -6043,8 +6739,8 @@ exports.prettifyError = prettifyError;
   }
 },
 51: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/compose-doc.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/compose-doc.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../doc/Document.js":7,"./compose-node.js":52,"./resolve-end.js":61,"./resolve-props.js":55},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6096,8 +6792,8 @@ exports.composeDoc = composeDoc;
   }
 },
 52: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/compose-node.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/compose-node.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Alias.js":8,"../nodes/identity.js":5,"./compose-collection.js":53,"./compose-scalar.js":62,"./resolve-end.js":61,"./util-empty-scalar-position.js":65},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6132,26 +6828,19 @@ function composeNode(ctx, token, props, onError) {
         case 'block-map':
         case 'block-seq':
         case 'flow-collection':
-            try {
-                node = composeCollection.composeCollection(CN, ctx, token, props, onError);
-                if (anchor)
-                    node.anchor = anchor.source.substring(1);
-            }
-            catch (error) {
-                // Almost certainly here due to a stack overflow
-                const message = error instanceof Error ? error.message : String(error);
-                onError(token, 'RESOURCE_EXHAUSTION', message);
-            }
+            node = composeCollection.composeCollection(CN, ctx, token, props, onError);
+            if (anchor)
+                node.anchor = anchor.source.substring(1);
             break;
         default: {
             const message = token.type === 'error'
                 ? token.message
                 : `Unsupported token (type: ${token.type})`;
             onError(token, 'UNEXPECTED_TOKEN', message);
+            node = composeEmptyNode(ctx, token.offset, undefined, null, props, onError);
             isSrcToken = false;
         }
     }
-    node ?? (node = composeEmptyNode(ctx, token.offset, undefined, null, props, onError));
     if (anchor && node.anchor === '')
         onError(anchor, 'BAD_ALIAS', 'Anchor cannot be an empty string');
     if (atKey &&
@@ -6216,8 +6905,8 @@ exports.composeNode = composeNode;
   }
 },
 53: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/compose-collection.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/compose-collection.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"../nodes/Scalar.js":15,"../nodes/YAMLMap.js":27,"../nodes/YAMLSeq.js":30,"./resolve-block-map.js":54,"./resolve-block-seq.js":59,"./resolve-flow-collection.js":60},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6283,7 +6972,7 @@ function composeCollection(CN, ctx, token, props, onError) {
     let tag = ctx.schema.tags.find(t => t.tag === tagName && t.collection === expType);
     if (!tag) {
         const kt = ctx.schema.knownTags[tagName];
-        if (kt?.collection === expType) {
+        if (kt && kt.collection === expType) {
             ctx.schema.tags.push(Object.assign({}, kt, { default: false }));
             tag = kt;
         }
@@ -6314,8 +7003,8 @@ exports.composeCollection = composeCollection;
   }
 },
 54: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-block-map.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-block-map.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Pair.js":16,"../nodes/YAMLMap.js":27,"./resolve-props.js":55,"./util-contains-newline.js":56,"./util-flow-indent-check.js":57,"./util-map-includes.js":58},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6439,8 +7128,8 @@ exports.resolveBlockMap = resolveBlockMap;
   }
 },
 55: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-props.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-props.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6519,7 +7208,8 @@ function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIn
                 if (token.source.endsWith(':'))
                     onError(token.offset + token.source.length - 1, 'BAD_ALIAS', 'Anchor ending in : is ambiguous', true);
                 anchor = token;
-                start ?? (start = token.offset);
+                if (start === null)
+                    start = token.offset;
                 atNewline = false;
                 hasSpace = false;
                 reqSpace = true;
@@ -6528,7 +7218,8 @@ function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIn
                 if (tag)
                     onError(token, 'MULTIPLE_TAGS', 'A node can have at most one tag');
                 tag = token;
-                start ?? (start = token.offset);
+                if (start === null)
+                    start = token.offset;
                 atNewline = false;
                 hasSpace = false;
                 reqSpace = true;
@@ -6595,8 +7286,8 @@ exports.resolveProps = resolveProps;
   }
 },
 56: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/util-contains-newline.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/util-contains-newline.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6639,8 +7330,8 @@ exports.containsNewline = containsNewline;
   }
 },
 57: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/util-flow-indent-check.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/util-flow-indent-check.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./util-contains-newline.js":56},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6664,8 +7355,8 @@ exports.flowIndentCheck = flowIndentCheck;
   }
 },
 58: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/util-map-includes.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/util-map-includes.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6687,8 +7378,8 @@ exports.mapIncludes = mapIncludes;
   }
 },
 59: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-block-seq.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-block-seq.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/YAMLSeq.js":30,"./resolve-props.js":55,"./util-flow-indent-check.js":57},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6717,7 +7408,7 @@ function resolveBlockSeq({ composeNode, composeEmptyNode }, ctx, bs, onError, ta
         });
         if (!props.found) {
             if (props.anchor || props.tag || value) {
-                if (value?.type === 'block-seq')
+                if (value && value.type === 'block-seq')
                     onError(props.end, 'BAD_INDENT', 'All sequence items must start at the same column');
                 else
                     onError(offset, 'MISSING_CHAR', 'Sequence item without - indicator');
@@ -6746,8 +7437,8 @@ exports.resolveBlockSeq = resolveBlockSeq;
   }
 },
 60: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-flow-collection.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-flow-collection.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"../nodes/Pair.js":16,"../nodes/YAMLMap.js":27,"../nodes/YAMLSeq.js":30,"./resolve-end.js":61,"./resolve-props.js":55,"./util-contains-newline.js":56,"./util-map-includes.js":58},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6887,7 +7578,7 @@ function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onErr
                 }
             }
             else if (value) {
-                if ('source' in value && value.source?.[0] === ':')
+                if ('source' in value && value.source && value.source[0] === ':')
                     onError(value, 'MISSING_CHAR', `Missing space after : in ${fcName}`);
                 else
                     onError(valueProps.start, 'MISSING_CHAR', `Missing , or : between ${fcName} items`);
@@ -6931,7 +7622,7 @@ function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onErr
     const expectedEnd = isMap ? '}' : ']';
     const [ce, ...ee] = fc.end;
     let cePos = offset;
-    if (ce?.source === expectedEnd)
+    if (ce && ce.source === expectedEnd)
         cePos = ce.offset + ce.source.length;
     else {
         const name = fcName[0].toUpperCase() + fcName.substring(1);
@@ -6963,8 +7654,8 @@ exports.resolveFlowCollection = resolveFlowCollection;
   }
 },
 61: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-end.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-end.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7010,8 +7701,8 @@ exports.resolveEnd = resolveEnd;
   }
 },
 62: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/compose-scalar.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/compose-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/identity.js":5,"../nodes/Scalar.js":15,"./resolve-block-scalar.js":63,"./resolve-flow-scalar.js":64},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7106,8 +7797,8 @@ exports.composeScalar = composeScalar;
   }
 },
 63: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-block-scalar.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-block-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7314,8 +8005,8 @@ exports.resolveBlockScalar = resolveBlockScalar;
   }
 },
 64: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/resolve-flow-scalar.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/resolve-flow-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../nodes/Scalar.js":15,"./resolve-end.js":61},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7464,7 +8155,7 @@ function doubleQuotedValue(source, onError) {
                     next = source[++i + 1];
             }
             else if (next === 'x' || next === 'u' || next === 'U') {
-                const length = next === 'x' ? 2 : next === 'u' ? 4 : 8;
+                const length = { x: 2, u: 4, U: 8 }[next];
                 res += parseCharCode(source, i + 1, length, onError);
                 i += length;
             }
@@ -7534,14 +8225,12 @@ function parseCharCode(source, offset, length, onError) {
     const cc = source.substr(offset, length);
     const ok = cc.length === length && /^[0-9a-fA-F]+$/.test(cc);
     const code = ok ? parseInt(cc, 16) : NaN;
-    try {
-        return String.fromCodePoint(code);
-    }
-    catch {
+    if (isNaN(code)) {
         const raw = source.substr(offset - 2, length + 2);
         onError(offset - 2, 'BAD_DQ_ESCAPE', `Invalid escape sequence ${raw}`);
         return raw;
     }
+    return String.fromCodePoint(code);
 }
 
 exports.resolveFlowScalar = resolveFlowScalar;
@@ -7549,15 +8238,16 @@ exports.resolveFlowScalar = resolveFlowScalar;
   }
 },
 65: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose/util-empty-scalar-position.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/compose",
+  filename: "/snapshot/filtalgo-cli/external/util-empty-scalar-position.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
 function emptyScalarPosition(offset, before, pos) {
     if (before) {
-        pos ?? (pos = before.length);
+        if (pos === null)
+            pos = before.length;
         for (let i = pos - 1; i >= 0; --i) {
             let st = before[i];
             switch (st.type) {
@@ -7585,8 +8275,8 @@ exports.emptyScalarPosition = emptyScalarPosition;
   }
 },
 66: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/cst.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
+  filename: "/snapshot/filtalgo-cli/external/cst.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./cst-scalar.js":67,"./cst-stringify.js":68,"./cst-visit.js":69},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7705,8 +8395,8 @@ exports.tokenType = tokenType;
   }
 },
 67: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/cst-scalar.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
+  filename: "/snapshot/filtalgo-cli/external/cst-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"../compose/resolve-block-scalar.js":63,"../compose/resolve-flow-scalar.js":64,"../errors.js":50,"../stringify/stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7931,8 +8621,8 @@ exports.setScalarValue = setScalarValue;
   }
 },
 68: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/cst-stringify.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
+  filename: "/snapshot/filtalgo-cli/external/cst-stringify.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8002,8 +8692,8 @@ exports.stringify = stringify;
   }
 },
 69: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/cst-visit.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
+  filename: "/snapshot/filtalgo-cli/external/cst-visit.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8109,8 +8799,8 @@ exports.visit = visit;
   }
 },
 70: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/lexer.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
+  filename: "/snapshot/filtalgo-cli/external/lexer.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./cst.js":66},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8836,8 +9526,8 @@ exports.Lexer = Lexer;
   }
 },
 71: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/line-counter.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
+  filename: "/snapshot/filtalgo-cli/external/line-counter.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8885,13 +9575,13 @@ exports.LineCounter = LineCounter;
   }
 },
 72: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse/parser.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/parse",
-  deps: {"process":null,"./cst.js":66,"./lexer.js":70},
+  filename: "/snapshot/filtalgo-cli/external/parser.js",
+  dirname: "/snapshot/filtalgo-cli/external",
+  deps: {"node:process":null,"./cst.js":66,"./lexer.js":70},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_process = require('process');
+var node_process = require('node:process');
 var cst = require('./cst.js');
 var lexer = require('./lexer.js');
 
@@ -9122,7 +9812,7 @@ class Parser {
     }
     *step() {
         const top = this.peek(1);
-        if (this.type === 'doc-end' && top?.type !== 'doc-end') {
+        if (this.type === 'doc-end' && (!top || top.type !== 'doc-end')) {
             while (this.stack.length > 0)
                 yield* this.pop();
             this.stack.push({
@@ -9654,7 +10344,7 @@ class Parser {
             do {
                 yield* this.pop();
                 top = this.peek(1);
-            } while (top?.type === 'flow-collection');
+            } while (top && top.type === 'flow-collection');
         }
         else if (fc.end.length === 0) {
             switch (this.type) {
@@ -9865,8 +10555,8 @@ exports.Parser = Parser;
   }
 },
 73: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist/public-api.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/node_modules/yaml/dist",
+  filename: "/snapshot/filtalgo-cli/external/public-api.js",
+  dirname: "/snapshot/filtalgo-cli/external",
   deps: {"./compose/composer.js":3,"./doc/Document.js":7,"./errors.js":50,"./log.js":23,"./nodes/identity.js":5,"./parse/line-counter.js":71,"./parse/parser.js":72},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -9980,8 +10670,8 @@ exports.stringify = stringify;
   }
 },
 74: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/lib/store.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/lib",
+  filename: "/snapshot/filtalgo-cli/lib/store.js",
+  dirname: "/snapshot/filtalgo-cli/lib",
   deps: {"fs":null,"path":null,"./config":1},
   factory: function(require, module, exports, __filename, __dirname) {
 const fs = require('fs');
@@ -9991,15 +10681,21 @@ const { getConfigDir } = require('./config');
 const CREDENTIALS_FILE = path.join(getConfigDir(), 'credentials.json');
 
 function save(credentials) {
+  ensureCredentialsDir();
+  if (!credentials || !credentials.agent_session_id) {
+    throw new Error('agent_session_id is required');
+  }
   const data = {
-    access_token: credentials.access_token,
-    refresh_token: credentials.refresh_token,
-    token_type: credentials.token_type || 'Bearer',
+    mode: 'agent-session',
+    agent_session_id: credentials.agent_session_id,
+    client_id: credentials.client_id,
+    member_id: credentials.member_id,
+    user_scene: credentials.user_scene,
+    delegation_id: credentials.delegation_id,
     expires_at: credentials.expires_at || credentials.expiry,
     scope: credentials.scope,
   };
 
-  // Ensure expires_at is ISO string
   if (data.expires_at instanceof Date) {
     data.expires_at = data.expires_at.toISOString();
   }
@@ -10014,7 +10710,10 @@ function load() {
 
   const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8');
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object'
+      ? { ...parsed, mode: getMode(parsed) }
+      : null;
   } catch {
     return null;
   }
@@ -10029,42 +10728,65 @@ function remove() {
 }
 
 function isExpired(creds, skewSeconds = 0) {
-  if (!creds || !creds.expires_at) return true;
+  if (!creds) return true;
+  if (!creds.expires_at) {
+    return getMode(creds) !== 'agent-session';
+  }
   return new Date(creds.expires_at).getTime() - skewSeconds * 1000 <= Date.now();
 }
 
-module.exports = { save, load, remove, isExpired };
+function getMode(creds) {
+  if (!creds || typeof creds !== 'object') return 'none';
+  if (creds.mode === 'agent-session' || creds.agent_session_id) return 'agent-session';
+  if (creds.access_token || creds.refresh_token) return 'legacy-oauth';
+  return 'none';
+}
+
+function getAgentSessionId(creds) {
+  if (getMode(creds) !== 'agent-session') return '';
+  return String(creds.agent_session_id || '').trim();
+}
+
+function ensureCredentialsDir() {
+  const dir = path.dirname(CREDENTIALS_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+module.exports = { save, load, remove, isExpired, getMode, getAgentSessionId, CREDENTIALS_FILE };
 
   }
 },
 75: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/lib/auth.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/lib",
-  deps: {"http":null,"https":null,"crypto":null,"child_process":null,"url":null,"./proxy":76},
+  filename: "/snapshot/filtalgo-cli/lib/auth.js",
+  dirname: "/snapshot/filtalgo-cli/lib",
+  deps: {"http":null,"https":null,"child_process":null,"url":null,"./proxy":76},
   factory: function(require, module, exports, __filename, __dirname) {
 const http = require('http');
 const https = require('https');
-const crypto = require('crypto');
 const { exec } = require('child_process');
 const { URL } = require('url');
 const { requestOptionsForUrl } = require('./proxy');
 
-function generateCodeVerifier() {
-  return crypto.randomBytes(32).toString('base64url');
+const DEFAULT_LINK_CHANNEL = 'mobile_h5';
+
+const DEVICE_STATUS = {
+  PENDING: 'PENDING',
+  AUTHORIZED: 'AUTHORIZED',
+  DENIED: 'DENIED',
+  EXPIRED: 'EXPIRED',
+  SLOW_DOWN: 'SLOW_DOWN',
+};
+
+function printManualBrowserHint(urlStr, logger = console.log) {
+  logger('  Open this URL manually:\n');
+  logger(`  ${urlStr}\n`);
 }
 
-function generateCodeChallenge(verifier) {
-  return crypto.createHash('sha256').update(verifier).digest('base64url');
-}
-
-function generateState() {
-  return crypto.randomBytes(16).toString('base64url');
-}
-
-function openBrowser(urlStr) {
+function openBrowser(urlStr, logger = console.log) {
   if (process.env.FILTALGO_CLI_NO_BROWSER === '1') {
-    console.log('  Open this URL manually:\n');
-    console.log(`  ${urlStr}\n`);
+    printManualBrowserHint(urlStr, logger);
     return;
   }
   const platform = process.platform;
@@ -10078,26 +10800,36 @@ function openBrowser(urlStr) {
   }
   exec(cmd, (err) => {
     if (err) {
-      console.log('  Could not open the browser automatically.');
-      console.log('  Open this URL manually:\n');
-      console.log(`  ${urlStr}\n`);
+      logger('  Could not open the browser automatically.');
+      printManualBrowserHint(urlStr, logger);
     }
   });
 }
 
-function httpRequest(urlStr, method, headers, body, json) {
+function httpRequest(urlStr, method, headers = {}, body, json = false) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlStr);
     const mod = url.protocol === 'https:' ? https : http;
 
-    let bodyStr;
-    let contentType;
-    if (json) {
-      bodyStr = JSON.stringify(body);
-      contentType = 'application/json';
-    } else {
-      bodyStr = typeof body === 'string' ? body : new URLSearchParams(body).toString();
-      contentType = 'application/x-www-form-urlencoded';
+    let bodyStr = '';
+    let contentType = '';
+    if (body !== undefined && body !== null) {
+      if (json) {
+        bodyStr = JSON.stringify(body);
+        contentType = 'application/json';
+      } else {
+        bodyStr = typeof body === 'string' ? body : new URLSearchParams(body).toString();
+        contentType = 'application/x-www-form-urlencoded';
+      }
+    }
+
+    const requestHeaders = {
+      Accept: 'application/json',
+      ...headers,
+    };
+    if (bodyStr) {
+      requestHeaders['Content-Type'] = contentType;
+      requestHeaders['Content-Length'] = Buffer.byteLength(bodyStr);
     }
 
     const options = requestOptionsForUrl(url, {
@@ -10105,28 +10837,25 @@ function httpRequest(urlStr, method, headers, body, json) {
       port: url.port || (url.protocol === 'https:' ? 443 : 80),
       path: url.pathname + url.search,
       method,
-      headers: {
-        'Content-Type': contentType,
-        Accept: 'application/json',
-        'Content-Length': Buffer.byteLength(bodyStr),
-        ...headers,
-      },
-      rejectUnauthorized: false,
+      headers: requestHeaders,
+      rejectUnauthorized: true,
     });
 
     const req = mod.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          parsed = data;
+        }
         if (res.statusCode >= 400) {
-          reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+          reject(buildHttpError(res.statusCode, parsed, data));
           return;
         }
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve(data);
-        }
+        resolve(parsed);
       });
     });
 
@@ -10135,215 +10864,247 @@ function httpRequest(urlStr, method, headers, body, json) {
       req.destroy();
       reject(new Error('Request timeout'));
     });
-    req.write(bodyStr);
+    if (bodyStr) {
+      req.write(bodyStr);
+    }
     req.end();
   });
 }
 
-function buildTokenRequest(config, fields) {
-  const body = {
-    ...fields,
-    clientId: config.client_id,
-  };
-  if (config.client_secret) {
-    body.clientSecret = config.client_secret;
+function buildHttpError(statusCode, payload, rawBody) {
+  const details = payload && typeof payload === 'object' ? payload : {};
+  const topLevelError = details.error && typeof details.error === 'object' ? details.error : null;
+  const code = pick(details, 'error') || pick(topLevelError, 'code');
+  const description = pick(details, 'error_description', 'message') || pick(topLevelError, 'message');
+  const fallback = typeof payload === 'string' && payload.trim() ? payload.trim() : rawBody;
+  const err = new Error(description || fallback || `HTTP ${statusCode}`);
+  err.statusCode = statusCode;
+  err.code = code;
+  err.details = details;
+  err.body = payload;
+  return err;
+}
+
+async function loginDevice(config, options = {}) {
+  const logger = typeof options.logger === 'function' ? options.logger : console.log;
+  const quiet = Boolean(options.quiet);
+  const openBrowserFn = typeof options.openBrowserFn === 'function' ? options.openBrowserFn : openBrowser;
+  const sleep = typeof options.sleep === 'function'
+    ? options.sleep
+    : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const clientId = String(options.clientId || config.device_client_id || '').trim();
+  const scope = String(options.scope || (Array.isArray(config.scopes) ? config.scopes.join(' ') : '')).trim();
+  const audience = String(options.audience || config.device_audience || '').trim();
+  const sourcePlatform = String(options.sourcePlatform || config.device_source_platform || 'cli').trim();
+  const externalUserRef = String(options.externalUserRef || '').trim();
+
+  if (!clientId) {
+    throw new Error('Missing device flow client id');
   }
-  return body;
-}
 
-async function exchangeToken(config, code, verifier, redirectUri) {
-  const body = buildTokenRequest(config, {
-    grantType: 'authorization_code',
-    code,
-    redirectUri,
-    codeVerifier: verifier,
+  const start = await startDeviceAuthorization(config, {
+    client_id: clientId,
+    scope,
+    ...(audience ? { audience } : {}),
+    ...(sourcePlatform ? { source_platform: sourcePlatform } : {}),
+    ...(externalUserRef ? { external_user_ref: externalUserRef } : {}),
   });
+  const verificationUrl = selectVerificationUrl(start, options.linkChannel);
 
-  const resp = await httpRequest(config.token_url, 'POST', {}, body, true);
-  return normalizeTokenResponse(resp);
-}
-
-function buildAuthorizeUrl(config, verifier, state, redirectUri) {
-  const challenge = generateCodeChallenge(verifier);
-  const authUrl = new URL(config.authorize_url);
-  authUrl.search = new URLSearchParams({
-    response_type: 'code',
-    client_id: config.client_id,
-    redirect_uri: redirectUri,
-    scope: config.scopes.join(' '),
-    state,
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-  }).toString();
-  return authUrl;
-}
-
-async function login(config) {
-  const verifier = generateCodeVerifier();
-  const state = generateState();
-  const port = config.redirect_port || 19832;
-  const callbackBindHost = config.callback_bind_host || '0.0.0.0';
-  const redirectUri = `http://127.0.0.1:${port}/callback`;
-  const authUrl = buildAuthorizeUrl(config, verifier, state, redirectUri);
-
-  console.log('\nStarting OAuth authorization...\n');
-  console.log(`  Redirect URI: ${redirectUri}`);
-  console.log(`  Callback bind host: ${callbackBindHost}`);
-  console.log(`  Auth URL:     ${authUrl.toString()}\n`);
-
-  const authCode = await new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      if (!req.url || !req.url.startsWith('/callback')) return;
-
-      let parsed;
-      try {
-        parsed = new URL(req.url, `http://127.0.0.1:${port}`);
-      } catch {
-        return;
-      }
-
-      const query = Object.fromEntries(parsed.searchParams);
-
-      if (query.state !== state) {
-        res.writeHead(400, closeHeaders());
-        res.end(errorHTML('State mismatch', 'The authorization request may have expired or been modified.'));
-        closeCallbackServer(server, req);
-        reject(new Error('State mismatch'));
-        return;
-      }
-
-      if (query.error) {
-        const desc = query.error_description || '';
-        res.writeHead(400, closeHeaders());
-        res.end(errorHTML(`Authorization failed: ${query.error}`, desc));
-        closeCallbackServer(server, req);
-        reject(new Error(`Authorization error (${query.error}): ${desc}`));
-        return;
-      }
-
-      const code = query.code;
-      if (!code) {
-        res.writeHead(400, closeHeaders());
-        res.end(errorHTML('No authorization code received', 'Please try logging in again.'));
-        closeCallbackServer(server, req);
-        reject(new Error('No authorization code received'));
-        return;
-      }
-
-      res.writeHead(200, closeHeaders());
-      res.end(SUCCESS_HTML);
-      closeCallbackServer(server, req);
-      resolve(code);
-    });
-
-    server.on('error', (err) => {
-      reject(new Error(`Failed to start callback server on port ${port}: ${err.message}`));
-    });
-
-    server.listen(port, callbackBindHost, () => {
-      openBrowser(authUrl.toString());
-    });
-  });
-
-  console.log('  Authorization code received. Exchanging for tokens...\n');
-
-  try {
-    return await exchangeToken(config, authCode, verifier, redirectUri);
-  } catch (err) {
-    throw new Error(`Token exchange failed: ${err.message}`);
+  if (!quiet) {
+    logger('\nStarting device authorization...\n');
+    logger(`  Client ID:        ${clientId}`);
+    logger(`  User Code:        ${start.user_code}`);
+    logger(`  Verification URL: ${verificationUrl || start.verification_uri_complete || start.verification_uri}`);
+    logger(`  Expires In:       ${start.expires_in}s`);
+    logger(`  Poll Interval:    ${start.interval}s\n`);
   }
-}
 
-function closeHeaders() {
-  return {
-    'Content-Type': 'text/html; charset=utf-8',
-    Connection: 'close',
-  };
-}
+  if (verificationUrl) {
+    openBrowserFn(verificationUrl, logger);
+  } else if (!quiet && start.verification_uri) {
+    printManualBrowserHint(start.verification_uri, logger);
+  }
 
-function closeCallbackServer(server, req) {
-  setImmediate(() => {
-    if (typeof server.closeAllConnections === 'function') {
-      server.closeAllConnections();
+  let intervalSeconds = normalizePollingInterval(start.interval, 5);
+  let lastStatus = '';
+
+  for (;;) {
+    await sleep(intervalSeconds * 1000);
+
+    let normalized;
+    try {
+      const status = await getDeviceAuthorizationStatus(config, {
+        device_code: start.device_code,
+      });
+      normalized = normalizeDeviceStatus(status);
+    } catch (err) {
+      normalized = normalizeDeviceStatus(err);
+      if (!normalized.status) {
+        throw new Error(`Device authorization polling failed: ${err.message}`);
+      }
     }
-    server.close(() => {});
-    if (req.socket && !req.socket.destroyed) {
-      req.socket.destroy();
+
+    if (normalized.interval) {
+      intervalSeconds = normalizePollingInterval(normalized.interval, intervalSeconds);
     }
-  });
-}
 
-const SUCCESS_HTML = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>授权成功</title>
-</head>
-<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;text-align:center;background:#f5f6f8;color:#111827;">
-  <div style="width:min(100%,360px);background:#fff;padding:32px 24px;border-radius:14px;box-shadow:0 12px 36px rgba(15,23,42,0.12);">
-    <div style="font-size:20px;font-weight:700;margin-bottom:12px;color:#16a34a;">授权成功</div>
-    <h1 style="font-size:24px;line-height:1.25;margin:0 0 12px;">已完成登录授权</h1>
-    <p style="font-size:15px;line-height:1.7;color:#4b5563;margin:0;">你可以关闭此页面，回到智能体继续操作。</p>
-  </div>
-</body>
-</html>`;
+    if (!quiet && normalized.status && normalized.status !== lastStatus) {
+      logger(`  Status: ${normalized.status}`);
+      lastStatus = normalized.status;
+    }
 
-function errorHTML(title, detail) {
-  const escapedTitle = String(title || '授权失败').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const escaped = String(detail || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>授权失败</title>
-</head>
-<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;text-align:center;background:#f5f6f8;color:#111827;">
-  <div style="width:min(100%,360px);background:#fff;padding:32px 24px;border-radius:14px;box-shadow:0 12px 36px rgba(15,23,42,0.12);">
-    <div style="font-size:20px;font-weight:700;margin-bottom:12px;color:#dc2626;">授权失败</div>
-    <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;">${escapedTitle}</h1>
-    <p style="font-size:15px;line-height:1.7;color:#4b5563;margin:0;">${escaped || '请关闭此页面，回到智能体重新发起授权。'}</p>
-  </div>
-</body>
-</html>`;
-}
+    switch (normalized.status) {
+      case DEVICE_STATUS.PENDING:
+        continue;
+      case DEVICE_STATUS.SLOW_DOWN:
+        intervalSeconds = Math.max(intervalSeconds + 5, normalizePollingInterval(normalized.interval, intervalSeconds + 5));
+        continue;
+      case DEVICE_STATUS.AUTHORIZED:
+        break;
+      case DEVICE_STATUS.DENIED:
+        throw deviceAuthError('access_denied', 'Device authorization was denied by the user.');
+      case DEVICE_STATUS.EXPIRED:
+        throw deviceAuthError('expired_token', 'Device authorization expired before confirmation.');
+      default:
+        throw new Error(`Unsupported device authorization status: ${normalized.raw || 'unknown'}`);
+    }
+    break;
+  }
 
-async function refreshAccessToken(config, refreshToken) {
-  const body = buildTokenRequest(config, {
-    grantType: 'refresh_token',
-    refreshToken,
+  const token = await exchangeDeviceSession(config, {
+    client_id: clientId,
+    ...(config.device_client_secret ? { client_secret: config.device_client_secret } : {}),
+    device_code: start.device_code,
+    ...(scope ? { scope } : {}),
   });
 
-  const resp = await httpRequest(config.token_url, 'POST', {}, body, true);
-  const normalized = normalizeTokenResponse(resp);
-  return {
-    ...normalized,
-    refresh_token: normalized.refresh_token || refreshToken,
-  };
+  return normalizeDeviceSessionResponse(token, clientId);
 }
 
-function normalizeTokenResponse(resp) {
+async function startDeviceAuthorization(config, request) {
+  const endpoint = buildAdapterEndpoint(config, 'device_start_path', '/agent-auth/device/start');
+  return httpRequest(endpoint, 'POST', {}, request, true);
+}
+
+async function getDeviceAuthorizationStatus(config, request) {
+  const endpoint = buildAdapterEndpoint(config, 'device_status_path', '/agent-auth/device/status');
+  return httpRequest(endpoint, 'POST', {}, request, true);
+}
+
+async function exchangeDeviceSession(config, request) {
+  const endpoint = buildAdapterEndpoint(config, 'device_token_path', '/agent-auth/device/token');
+  return httpRequest(endpoint, 'POST', {}, request, true);
+}
+
+function buildAdapterEndpoint(config, configKey, fallbackPath) {
+  const baseUrl = String(config.adapter_url || '').trim();
+  if (!baseUrl) {
+    throw new Error('Missing required config: adapter_url');
+  }
+  const pathOrUrl = String(config[configKey] || fallbackPath || '').trim();
+  if (!pathOrUrl) {
+    throw new Error(`Missing required config: ${configKey}`);
+  }
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return pathOrUrl;
+  }
+  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return new URL(pathOrUrl.replace(/^\/+/, ''), base).toString();
+}
+
+function normalizeDeviceSessionResponse(resp, clientId) {
   const result = resp && resp.result ? resp.result : resp;
-  const accessToken = pick(result, 'accessToken', 'access_token');
-  const refreshToken = pick(result, 'refreshToken', 'refresh_token');
-  const tokenType = pick(result, 'tokenType', 'token_type') || 'Bearer';
-  const expiresIn = pick(result, 'expiresIn', 'expires_in');
-  const scope = pick(result, 'scope');
-
-  if (!accessToken) {
-    throw new Error('Token response did not include access_token');
+  const agentSessionId = pick(result, 'agent_session_id', 'agentSessionId');
+  if (!agentSessionId) {
+    throw new Error('Device token response did not include agent_session_id');
   }
-
+  const expiresIn = pick(result, 'agent_session_expires_in', 'agentSessionExpiresIn');
   return {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    token_type: tokenType,
+    mode: 'agent-session',
+    agent_session_id: agentSessionId,
+    client_id: pick(result, 'client_id', 'clientId') || clientId,
+    member_id: pick(result, 'member_id', 'memberId'),
+    user_scene: pick(result, 'user_scene', 'userScene'),
+    delegation_id: pick(result, 'delegation_id', 'delegationId'),
+    scope: pick(result, 'scope'),
     expires_at: expiresIn
       ? new Date(Date.now() + Number(expiresIn) * 1000).toISOString()
       : undefined,
-    scope,
   };
+}
+
+function normalizeDeviceStatus(value) {
+  const details = value && typeof value === 'object' ? (value.details || value.body || value) : {};
+  const code = String(
+    pick(value, 'code')
+      || pick(details, 'status', 'error')
+      || pick(details.error, 'code')
+      || '',
+  ).trim();
+  const mapped = mapDeviceStatus(code);
+  const interval = pick(details, 'interval');
+  return {
+    status: mapped,
+    raw: code,
+    interval: interval === undefined || interval === null || interval === ''
+      ? undefined
+      : Number(interval),
+  };
+}
+
+function mapDeviceStatus(code) {
+  const normalized = String(code || '').trim().toUpperCase().replace(/-/g, '_');
+  switch (normalized) {
+    case 'PENDING':
+    case 'AUTHORIZATION_PENDING':
+      return DEVICE_STATUS.PENDING;
+    case 'AUTHORIZED':
+      return DEVICE_STATUS.AUTHORIZED;
+    case 'DENIED':
+    case 'ACCESS_DENIED':
+      return DEVICE_STATUS.DENIED;
+    case 'EXPIRED':
+    case 'EXPIRED_TOKEN':
+      return DEVICE_STATUS.EXPIRED;
+    case 'SLOW_DOWN':
+      return DEVICE_STATUS.SLOW_DOWN;
+    default:
+      return '';
+  }
+}
+
+function normalizePollingInterval(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return Math.max(1, Number(fallback) || 1);
+  }
+  return Math.max(1, Math.ceil(parsed));
+}
+
+function selectVerificationUrl(start, linkChannel) {
+  const explicitChannel = String(linkChannel || '').trim();
+  const channel = explicitChannel || DEFAULT_LINK_CHANNEL;
+  const links = start && start.verification_links && typeof start.verification_links === 'object'
+    ? start.verification_links
+    : {};
+  if (typeof links[channel] === 'string' && links[channel].trim()) {
+    return links[channel];
+  }
+  if (channel === 'pc_web') {
+    return start.verification_uri_complete || start.verification_uri || '';
+  }
+  if (!explicitChannel) {
+    return start.verification_uri_complete || start.verification_uri || '';
+  }
+  throw deviceAuthError('link_channel_unavailable', `Verification link channel ${channel} is not available.`);
+}
+
+function deviceAuthError(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
 }
 
 function pick(source, ...keys) {
@@ -10356,20 +11117,17 @@ function pick(source, ...keys) {
 }
 
 module.exports = {
-  login,
-  refreshAccessToken,
-  _normalizeTokenResponse: normalizeTokenResponse,
-  _buildAuthorizeUrl: buildAuthorizeUrl,
-  _generateCodeVerifier: generateCodeVerifier,
-  _generateCodeChallenge: generateCodeChallenge,
-  _generateState: generateState,
+  loginDevice,
+  _normalizeDeviceStatus: normalizeDeviceStatus,
+  _normalizeDeviceSessionResponse: normalizeDeviceSessionResponse,
+  _selectVerificationUrl: selectVerificationUrl,
 };
 
   }
 },
 76: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/lib/proxy.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/lib",
+  filename: "/snapshot/filtalgo-cli/lib/proxy.js",
+  dirname: "/snapshot/filtalgo-cli/lib",
   deps: {"http":null,"https":null,"net":null,"tls":null,"url":null},
   factory: function(require, module, exports, __filename, __dirname) {
 const http = require('http');
@@ -10512,93 +11270,19 @@ module.exports = { agentForUrl, requestOptionsForUrl, _getProxyForUrl: getProxyF
   }
 },
 77: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/lib/token.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/lib",
-  deps: {},
-  factory: function(require, module, exports, __filename, __dirname) {
-function memberIdFromAccessToken(accessToken) {
-  const parts = String(accessToken || '').split('.');
-  if (parts.length < 2) return '';
-  try {
-    const payload = JSON.parse(Buffer.from(base64UrlToBase64(parts[1]), 'base64').toString('utf8'));
-    return typeof payload.sub === 'string' ? payload.sub.trim() : '';
-  } catch {
-    return '';
-  }
-}
-
-function base64UrlToBase64(value) {
-  let out = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
-  while (out.length % 4) out += '=';
-  return out;
-}
-
-module.exports = { memberIdFromAccessToken };
-
-  }
-},
-78: {
-  filename: "/home/luochen/code/filtalgo/filtalgo-cli/lib/api.js",
-  dirname: "/home/luochen/code/filtalgo/filtalgo-cli/lib",
-  deps: {"https":null,"http":null,"url":null,"./config":1,"./store":74,"./auth":75,"./proxy":76},
+  filename: "/snapshot/filtalgo-cli/lib/api.js",
+  dirname: "/snapshot/filtalgo-cli/lib",
+  deps: {"https":null,"http":null,"url":null,"./config":1,"./proxy":76},
   factory: function(require, module, exports, __filename, __dirname) {
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const config = require('./config');
-const store = require('./store');
-const { refreshAccessToken } = require('./auth');
 const { requestOptionsForUrl } = require('./proxy');
 
-let _refreshing = null;
-
-async function getValidCredentials(cfg) {
-  let creds = store.load();
-  if (!creds) return null;
-
-  if (store.isExpired(creds, 60)) {
-    if (!creds.refresh_token) {
-      throw authReloginRequired();
-    }
-    if (!_refreshing) {
-      _refreshing = refreshAccessToken(cfg, creds.refresh_token)
-        .then((newCreds) => {
-          store.save(newCreds);
-          _refreshing = null;
-          return newCreds;
-        })
-        .catch((err) => {
-          _refreshing = null;
-          throw authReloginRequired(err.message);
-        });
-    }
-    creds = await _refreshing;
-  }
-
-  return creds;
-}
-
-function authReloginRequired(detail) {
-  const suffix = detail ? ` (${detail})` : '';
-  const err = new Error(`Authentication expired. Run "filtalgo auth login" again.${suffix}`);
-  err.code = 'auth_relogin_required';
-  return err;
-}
-
 function request(method, path, body, opts = {}) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const cfg = config.load();
-    let creds = null;
-
-    try {
-      creds = await getValidCredentials(cfg);
-    } catch (e) {
-      if (!opts.authOptional) {
-        reject(e);
-        return;
-      }
-    }
-
     const url = buildAdapterUrl(cfg.adapter_url, path);
     const bodyStr = body ? JSON.stringify(body) : undefined;
 
@@ -10609,10 +11293,6 @@ function request(method, path, body, opts = {}) {
     if (bodyStr) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = Buffer.byteLength(bodyStr);
-    }
-
-    if (creds) {
-      headers['Authorization'] = `Bearer ${creds.access_token}`;
     }
 
     if (opts.idempotencyKey) {
@@ -10630,7 +11310,7 @@ function request(method, path, body, opts = {}) {
       path: url.pathname + url.search,
       method,
       headers,
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
     });
 
     const req = mod.request(reqOpts, (res) => {
@@ -10677,13 +11357,13 @@ function post(path, body, opts) {
 }
 
 // Gateway MCP helpers
-async function mcpCall(toolName, args) {
+async function mcpCall(toolName, args, opts = {}) {
   const resp = await post('/gateway/mcp', {
     jsonrpc: '2.0',
     id: Date.now(),
     method: 'tools/call',
     params: { name: toolName, arguments: args || {} },
-  });
+  }, opts);
 
   if (resp.body && resp.body.error) {
     const error = resp.body.error;
@@ -10706,7 +11386,7 @@ async function mcpList() {
   return resp.body && resp.body.result;
 }
 
-module.exports = { request, get, post, mcpCall, mcpList, getValidCredentials, _buildAdapterUrl: buildAdapterUrl };
+module.exports = { request, get, post, mcpCall, mcpList, _buildAdapterUrl: buildAdapterUrl };
 
   }
 }
