@@ -2,7 +2,7 @@
 
 [English README](README.md) · [公司官网](https://www.filtalgo.com/)
 
-![版本](https://img.shields.io/badge/version-1.5.0-0B5FFF)
+![版本](https://img.shields.io/badge/version-1.5.1-0B5FFF)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -148,8 +148,9 @@ agents/openai.yaml        # Skill 展示元信息
 skills.sh.json            # skills.sh 仓库展示元数据
 ```
 
-## 1.5.0 版本更新
+## 1.5.1 版本更新
 
+- 压缩并前置公开描述中的场景语义，提高泛购物需求的语义检索命中率。
 - 补充筛电、Filtmall、Filtalgo、高性价比购物和中国电商等明确发现信号。
 - 增加 skills.sh 仓库元数据以及稳定的 `filtmall-shopping` 查看和安装入口。
 - 更新内置 CLI，并将商品、结算、订单、物流和售后详细规则拆分为按需加载的引用文档。

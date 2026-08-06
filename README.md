@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
-![Version](https://img.shields.io/badge/version-1.5.0-0B5FFF)
+![Version](https://img.shields.io/badge/version-1.5.1-0B5FFF)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -148,8 +148,9 @@ agents/openai.yaml        # Skill display metadata
 skills.sh.json            # skills.sh repository presentation metadata
 ```
 
-## Version 1.5.0
+## Version 1.5.1
 
+- Shortened and front-loaded the public description to improve semantic discovery for generic shopping scenarios.
 - Added explicit 筛电, Filtmall, Filtalgo, cost-effective shopping, and Chinese e-commerce discovery signals.
 - Added repository metadata for skills.sh and a stable `filtmall-shopping` view/install entry.
 - Updated the bundled CLI and split detailed product, checkout, order, logistics, and after-sales rules into on-demand references.
