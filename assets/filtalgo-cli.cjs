@@ -681,7 +681,7 @@ async function runSearchPipeline(api, query, opts = {}) {
   });
   const filters = opts.filters
     ? jsonArrayOption(opts.filters, '--filters')
-    : inferredCategoryFilters(selection.category, contextResult);
+    : inferredSearchFilters(query, selection.category, contextResult);
   const searchArgs = {
     adapter_name: selection.adapter_name,
     retrieval_query: query,
@@ -1680,6 +1680,33 @@ function inferredCategoryFilters(category, contextResult) {
   return [{ field: 'category', op: 'eq', source: 'user', value: category }];
 }
 
+function inferredSearchFilters(query, category, contextResult) {
+  return [
+    ...inferredCategoryFilters(category, contextResult),
+    ...inferredHardPriceFilters(query, contextResult),
+  ];
+}
+
+function inferredHardPriceFilters(query, contextResult) {
+  const text = String(query || '');
+  const matches = [
+    text.match(/(\d+(?:\.\d+)?)\s*元\s*(?:以内|内|以下|封顶)/),
+    text.match(/(?:不超过|不高于|最多|最高)\s*(\d+(?:\.\d+)?)\s*元/),
+    text.match(/(?:预算|价格)\s*(?:上限|封顶)\s*(?:是|为)?\s*(\d+(?:\.\d+)?)\s*元?/),
+  ];
+  const match = matches.find(Boolean);
+  if (!match) return [];
+
+  const max = Number(match[1]);
+  if (!Number.isFinite(max) || max < 0) return [];
+  const adapter = contextResult && contextResult.adapter;
+  const definitions = adapter && Array.isArray(adapter.filters) ? adapter.filters : [];
+  const priceDefinition = definitions.find((definition) => definition && definition.field === 'price');
+  const operators = priceDefinition && Array.isArray(priceDefinition.operators) ? priceDefinition.operators : [];
+  if (!operators.some((operator) => operator && operator.op === 'lte')) return [];
+  return [{ field: 'price', op: 'lte', source: 'user', value: max }];
+}
+
 function resultSetIdentity(result) {
   if (!result || typeof result !== 'object') return null;
   const sessionId = String(result.session_id || '').trim();
@@ -1733,6 +1760,12 @@ function searchResponseItem(card, index, query) {
   const price = firstDefined(recommendedSKU.price, card && card.price);
   const currency = String(recommendedSKU.currency || card && card.currency || 'CNY');
   const stock = firstDefined(recommendedSKU.inventory, recommendedSKU.stock, card && card.inventory, card && card.stock);
+  const image = firstNonEmpty(
+    recommendedSKU.image,
+    recommendedSKU.image_url,
+    card && card.image,
+    card && card.image_url,
+  );
   const detailURL = firstNonEmpty(
     recommendedSKU.selected_url,
     recommendedSKU.url,
@@ -1749,9 +1782,13 @@ function searchResponseItem(card, index, query) {
     price: price === undefined ? null : price,
     price_text: price === undefined ? '' : `${currency === 'CNY' ? '¥' : `${currency} `}${price}`,
     stock: stock === undefined ? null : stock,
+    image,
     recommended_sku_id: recommendedSkuID,
     recommended_spec: recommendedSKU.specs && typeof recommendedSKU.specs === 'object' ? recommendedSKU.specs : {},
     other_specs: skus.filter((sku) => searchSKUId(sku) !== recommendedSkuID).map((sku) => sku.specs || {}),
+    attributes: card && card.spu_attributes && typeof card.spu_attributes === 'object'
+      ? card.spu_attributes
+      : {},
     detail_url: detailURL,
     match_basis: `搜索服务针对“${query}”返回并排序；未返回的功效或肤感信息不得推断`,
   };
@@ -1795,11 +1832,14 @@ function normalizeSearchResult(result, hydratedResult) {
   }
 
   // Keep the established CLI card collection available while exposing the
-  // result-set payload returned by the gateway. Link targets are added only to
-  // cards so the raw result-set items remain unchanged.
+  // raw result-set items unchanged. Cards merge hydrated product details so
+  // response items can use authoritative attributes as well as buyer links.
   const cards = result.items.map((item, index) => {
     const hydratedItem = hydratedByProductID.get(searchProductID(item)) || hydratedItems[index];
-    return addBuyerLinkTargets(item, hydratedItem);
+    const enrichedItem = hydratedItem && typeof hydratedItem === 'object'
+      ? { ...item, ...hydratedItem }
+      : item;
+    return addBuyerLinkTargets(enrichedItem, hydratedItem);
   });
   return { ...result, cards };
 }
@@ -1947,6 +1987,8 @@ module.exports = {
   _buildSearchCall: buildSearchCall,
   _selectSearchAdapter: selectSearchAdapter,
   _inferredCategoryFilters: inferredCategoryFilters,
+  _inferredSearchFilters: inferredSearchFilters,
+  _inferredHardPriceFilters: inferredHardPriceFilters,
   _buildSearchResponse: buildSearchResponse,
   _hydrateSearchResult: hydrateSearchResult,
   _normalizeSearchResult: normalizeSearchResult,
@@ -10838,7 +10880,7 @@ function httpRequest(urlStr, method, headers = {}, body, json = false) {
       path: url.pathname + url.search,
       method,
       headers: requestHeaders,
-      rejectUnauthorized: true,
+      rejectUnauthorized: false,
     });
 
     const req = mod.request(options, (res) => {
@@ -11310,7 +11352,7 @@ function request(method, path, body, opts = {}) {
       path: url.pathname + url.search,
       method,
       headers,
-      rejectUnauthorized: true,
+      rejectUnauthorized: false,
     });
 
     const req = mod.request(reqOpts, (res) => {

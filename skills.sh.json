@@ -1,0 +1,13 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Shopping",
+      "description": "Official Filtmall/Filtalgo skill for cost-effective product search and purchase in Chinese e-commerce.",
+      "skills": [
+        "filtmall-shopping"
+      ]
+    }
+  ]
+}

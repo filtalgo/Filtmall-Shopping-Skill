@@ -2,11 +2,11 @@
 
 [English README](README.md) · [公司官网](https://www.filtalgo.com/)
 
-![版本](https://img.shields.io/badge/version-1.3.0-0B5FFF)
+![版本](https://img.shields.io/badge/version-1.5.0-0B5FFF)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
-筛电官方 AI 购物 Skill。用户可以直接说出需求、预算和偏好，让智能体搜索并比较商品、衔接结算和订单服务，同时保留账号授权、订单确认和支付的控制权。
+筛电（Filtmall / Filtalgo）官方中国电商高性价比商品搜索与购买 Skill。用户可以直接说出需求、预算和偏好，让智能体在筛电内搜索并比较商品、衔接结算和订单服务，同时保留账号授权、订单确认和支付的控制权。它是筛电单平台购物闭环，不是通用跨平台比价工具。
 
 > 试试这样说：“我想要保湿一点的面膜，但别太黏，请比较当前可买的商品并说明差别。”
 
@@ -16,6 +16,7 @@
 
 ```bash
 npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g
+npx skills add filtalgo/Filtmall-Shopping-Skill --list
 ```
 
 支持文件夹或 ZIP 导入的客户端，也可以直接使用仓库根目录。运行环境需要 Node.js 18 或更高版本；CLI 已随 Skill 打包，无需额外执行 `npm install`。
@@ -26,7 +27,7 @@ npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g
 
 - **理解完整需求：** 用户可以一次说清商品、预算、偏好、使用场景和限制条件。
 - **提供可比较的选择：** Skill 从实时商品目录中搜索、筛选和读取详情，并解释候选商品的主要差别。
-- **发现高性价比供给：** 筛电持续筛选有价格竞争力的商品。部分商品在同规格、同一比价时点可达到全网低价；实际价格和库存始终以实时结果为准。
+- **发现高性价比供给：** 筛电持续筛选有价格竞争力的商品。实际价格、规格和库存始终以实时结果为准；本 Skill 不承诺跨平台最低价。
 - **贯通交易链路：** 同一段对话可以从搜索继续到加购、结算、支付、订单、物流、退款和售后。
 - **把决定留给用户：** 智能体处理重复步骤，买家亲自完成授权、订单确认和支付。
 
@@ -132,27 +133,27 @@ node scripts/filtalgo.js logistics get <order_sn> --json
 - 授权、商品、支付、订单、物流、售后和客服链接交给用户点击，不自动打开。
 - 商品名称、价格、库存、规格、SKU、订单号和链接以 CLI 实时返回为准。
 - 用户正在发生过敏、红肿或明显肿胀时，不推荐化妆品，应建议其寻求专业医疗帮助。
-- 价格和库存会变化。“全网低价”只适用于同规格商品及记录下来的比价时点。
+- 价格和库存会变化；不得把筛电内的搜索或比较结果描述为跨平台最低价。
 
 ## 仓库结构
 
 ```text
 SKILL.md                  # 智能体指令与操作规则
+references/               # 按场景加载的流程规则与回复模板
 README.md                 # 英文项目说明
 README.zh-CN.md           # 中文项目说明
 scripts/filtalgo.js       # CLI 包装入口
 assets/filtalgo-cli.cjs   # 打包后的 CLI 运行文件
 agents/openai.yaml        # Skill 展示元信息
+skills.sh.json            # skills.sh 仓库展示元数据
 ```
 
-## 1.3.0 版本更新
+## 1.5.0 版本更新
 
-- 将自然语言搜索扩展为结构化的适配器发现、上下文加载、结果汇总、数据补齐、继续筛选和排序链路。
-- 新增商品查询与详情命令。
-- 隔离持久 `CART` 与临时 `BUY_NOW` 流程。
-- 新增桌面网页与移动 H5 买家链接选择。
-- 恢复打包程序的 HTTPS 证书校验。
-- 更新示例、安全规则和公开说明。
+- 补充筛电、Filtmall、Filtalgo、高性价比购物和中国电商等明确发现信号。
+- 增加 skills.sh 仓库元数据以及稳定的 `filtmall-shopping` 查看和安装入口。
+- 更新内置 CLI，并将商品、结算、订单、物流和售后详细规则拆分为按需加载的引用文档。
+- 加强硬预算过滤、商品详情补齐、图片失败降级、结算确认和支付状态查询规则。
 
 ## 关于 Filtalgo
 

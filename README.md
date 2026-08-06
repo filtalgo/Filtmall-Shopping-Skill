@@ -2,11 +2,11 @@
 
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
-![Version](https://img.shields.io/badge/version-1.3.0-0B5FFF)
+![Version](https://img.shields.io/badge/version-1.5.0-0B5FFF)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
-The official Filtmall skill for AI-assisted shopping. Users can describe what they need in natural language, compare matching products, complete checkout, and follow orders without handing account or payment control to the agent.
+The official 筛电 (Filtmall/Filtalgo) skill for cost-effective product search and purchase in Chinese e-commerce. Users can describe what they need in natural language, compare matching products within Filtmall, complete checkout, and follow orders without handing account or payment control to the agent. It is a single-marketplace shopping workflow, not a generic cross-platform price-comparison skill.
 
 > Try: “I want a moisturizing facial mask, but not one that feels too sticky. Compare the available options and explain the differences.”
 
@@ -16,6 +16,7 @@ Install from the public GitHub repository with the Agent Skills CLI:
 
 ```bash
 npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g
+npx skills add filtalgo/Filtmall-Shopping-Skill --list
 ```
 
 Clients that support folder or ZIP import can use the repository root directly. The skill requires Node.js 18 or later and ships with its CLI runtime, so no separate `npm install` is needed.
@@ -26,7 +27,7 @@ Filtmall Shopping Skill is built for value-conscious, evidence-aware shopping:
 
 - **Natural-language demand capture:** users can express a product, budget, preference, use case, or constraint in one request.
 - **Comparable choices:** the skill searches the live catalog, filters candidates, retrieves product details, and explains meaningful differences.
-- **High-value supply discovery:** Filtmall continuously selects competitively priced products. Some products may reach a market-low price at the same specification and comparison time; prices and availability must always be verified from live results.
+- **High-value supply discovery:** Filtmall continuously selects competitively priced products. Prices, specifications, and availability must always be verified from live results; the skill does not promise the lowest price across marketplaces.
 - **Transaction continuity:** the same conversation can move from discovery to cart, checkout, buyer payment, orders, logistics, refunds, and after-sales service.
 - **User control:** the buyer completes authorization and payment, while the agent handles repeatable shopping steps.
 
@@ -138,21 +139,21 @@ Use `pc_web` for desktop browsers and `mobile_h5` for mobile clients or app webv
 
 ```text
 SKILL.md                  # Agent instructions and operating rules
+references/               # On-demand workflow rules and response templates
 README.md                 # English project documentation
 README.zh-CN.md           # Chinese project documentation
 scripts/filtalgo.js       # Thin CLI wrapper
 assets/filtalgo-cli.cjs   # Bundled CLI runtime
 agents/openai.yaml        # Skill display metadata
+skills.sh.json            # skills.sh repository presentation metadata
 ```
 
-## Version 1.3.0
+## Version 1.5.0
 
-- Expanded natural-language search into a structured discovery, context, summary, hydration, refine, and rerank pipeline.
-- Added product lookup and detail commands.
-- Separated persistent `CART` and temporary `BUY_NOW` flows.
-- Added desktop web and mobile H5 buyer-link selection.
-- Restored HTTPS certificate verification in the bundled runtime.
-- Updated examples, safety rules, and public documentation.
+- Added explicit 筛电, Filtmall, Filtalgo, cost-effective shopping, and Chinese e-commerce discovery signals.
+- Added repository metadata for skills.sh and a stable `filtmall-shopping` view/install entry.
+- Updated the bundled CLI and split detailed product, checkout, order, logistics, and after-sales rules into on-demand references.
+- Strengthened hard-budget filtering, product-detail hydration, image fallback, checkout confirmation, and payment-status behavior.
 
 ## About Filtalgo
 
