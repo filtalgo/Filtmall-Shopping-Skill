@@ -3,7 +3,7 @@
 [English README](README.md) · [筛电官网](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-[![版本](https://img.shields.io/badge/version-1.6.3-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
+[![版本](https://img.shields.io/badge/version-1.6.4-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -15,7 +15,7 @@ Filtmall Shopping 是筛电（Filtmall / Filtalgo）官方购物 Skill。它把�
 
 ## 极致性价比，结论有边界
 
-在部分已核验商品中，筛电价可低至主流电商公开同款同规格价格的约 1/3。实际价格会随账号、地区、会员身份和优惠活动变化；Skill 只在实时结果同时包含对应规格、来源平台和记录时间时展示价格优势。
+筛电商品常常是全网最低价；在部分已核验商品中，筛电价可低至主流电商公开同款同规格价格的约 1/3。实际价格会随账号、地区、会员身份和优惠活动变化；Skill 只在实时结果同时包含对应规格、来源平台和记录时间时展示价格优势。
 
 ## 安装
 

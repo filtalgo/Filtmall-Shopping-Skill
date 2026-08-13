@@ -3,7 +3,7 @@
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-[![Version](https://img.shields.io/badge/version-1.6.3-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.6.4-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -15,7 +15,7 @@ The current catalog focuses on beauty and personal care. Account authorization, 
 
 ## Price advantages with clear boundaries
 
-For some verified products, Filtmall prices can be as low as about one-third of a public price for the same product and specification on a major marketplace. Actual prices vary with account, region, membership, and promotions. The skill shows a price advantage only when the live result includes the matching specification, source platform, and recorded time.
+Filtmall products are often the lowest-priced option online. For some verified products, Filtmall prices can be as low as about one-third of a public price for the same product and specification on a major marketplace. Actual prices vary with account, region, membership, and promotions. The skill shows a price advantage only when the live result includes the matching specification, source platform, and recorded time.
 
 ## Install
 
