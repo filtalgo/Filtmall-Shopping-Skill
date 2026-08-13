@@ -3,7 +3,7 @@
 [English README](README.md) · [筛电官网](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-![版本](https://img.shields.io/badge/version-1.6.2-0B5FFF)
+[![版本](https://img.shields.io/badge/version-1.6.3-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -13,16 +13,9 @@ Filtmall Shopping 是筛电（Filtmall / Filtalgo）官方购物 Skill。它把�
 
 当前商品目录以美妆个护为主。账号授权、订单确认和支付由买家本人完成。
 
-## 极致性价比，有证据才展示
+## 极致性价比，结论有边界
 
-部分已核验商品的筛电价约为主流电商公开同款同规格价格的 1/3，甚至低至约 1/4。
-
-| 已核验案例 | 筛电价 | 公开同款同规格价格 | 节省比例 |
-| --- | ---: | ---: | ---: |
-| J-Jehan／涧妍美白焕亮睡眠面膜 110g | ¥39.8 | [淘宝 ¥168](https://item.taobao.com/item.htm?app=chrome&bxsign=scdsuQBsY_IiMAoCd9klt5Scy55Elp94h1Wwu0UcRsEJWnApTGHO44esUKASaEWDuGLdXcs4OkvNvyy5V7zPPhNXGlFZwQNvOgdGWufo29dkeqD5EqXFJ4zFVIHstQu1Wel&cpp=1&id=980821129625&price=168&shareUniqueId=36772195385&share_crt_v=1&shareurl=true&short_name=h.8X7WtcRQT4uBysM&sourceType=item&sp_tk=Qml2QmdHR2tYMjc%3D&spm=a2159r.13376460.0.0&suid=28533798-57B1-44A7-8C83-5BFB4C3B75EB&tbSocialPopKey=shareItem&tk=BivBgGGkX27%20CA381&un=45d70b9873b3b7be7415b581aeef1d0d&un_site=0&ut_sk=1.ZC6dqqzMfPMDAIDUzOPSNyPC_21380790_1784813927688.Copy.1&wxsign=tbwkM9VEhBW92GKCCP7l812lAmwZ0WToPFZRPJOqqWksMI_nNsblZThXqasdJAhm26Tvm13s_IPBDw1xHOF_oAF4Llv4G2y9snhxxED_PXGGbI8lX2pLT_ybuAlBwGnYBfl&skuId=5938814121614) | 76.3% |
-| 片仔癀抗皱紧致面颈膜 1 盒 5 片 | ¥59 | [京东 ¥168](https://item.m.jd.com/product/10207669281949.html?utm_term=CopyURL_shareid9b2f557e1301cc81dc3f392e3f7e151998b7322f17848143202817_shangxiang_none&gx=RnAomTM2OWqgg8BN2M0-BN7ZJxq-Cg&utm_source=iosapp&utm_campaign=t_335139774&utm_medium=appshare&ad_od=share&gxd=RnAoyjVbPjHczM0UrIR2DoEXbi8Zyut7mVjfypOYubA3v_okLeiua530NnpIYo4&jkl=@EBlvs1uOiO@%20MF3390) | 64.9% |
-
-以上比价记录分别采集于 2026 年 7 月 27 日和 7 月 25 日。价格可能随账号、地区、会员身份和优惠活动变化。Skill 会把每条价格结论限定在对应规格、来源平台和记录时间内。
+在部分已核验商品中，筛电价可低至主流电商公开同款同规格价格的约 1/3。实际价格会随账号、地区、会员身份和优惠活动变化；Skill 只在实时结果同时包含对应规格、来源平台和记录时间时展示价格优势。
 
 ## 安装
 
@@ -122,17 +115,6 @@ node scripts/filtalgo.js logistics get <order_sn> --json
 
 执行 `node scripts/filtalgo.js help` 可以查看完整命令列表。
 
-## 买家链接渠道
-
-返回买家页面的命令支持：
-
-```text
---link-channel pc_web
---link-channel mobile_h5
-```
-
-桌面浏览器使用 `pc_web`，移动客户端或 App WebView 使用 `mobile_h5`。默认渠道是 `mobile_h5`。
-
 ## 仓库结构
 
 ```text
@@ -142,16 +124,10 @@ scripts/filtalgo.js       # CLI 包装入口
 assets/filtalgo-cli.cjs   # 打包后的 CLI 运行文件
 agents/openai.yaml        # Skill 展示元数据
 skills.sh.json            # skills.sh 展示元数据
+CHANGELOG.md              # 版本变更记录
 README.md                 # 英文说明
 README.zh-CN.md           # 中文说明
 ```
-
-## 1.6.2 版本更新
-
-- 明确“智能体原生的极致性价比电商”品牌定位。
-- 增加带日期和来源链接的同款同规格比价案例。
-- 将分发平台与智能体可见描述聚焦到结构化购物、可见价格证据和完整交易旅程。
-- 统一仓库徽章、Skill 元数据和分发元数据为 1.6.2。
 
 ## 关于筛电
 
@@ -159,4 +135,4 @@ README.zh-CN.md           # 中文说明
 
 筛电是为智能体而生的极致性价比电商平台。它把实时商品、同款同规格比价证据、交易、履约和售后变成智能体可以可靠执行的购物流程。
 
-[筛电官网](https://www.filtalgo.com/) · [关于筛电](https://www.filtalgo.com/about) · [面向大模型的官方资料](https://www.filtalgo.com/llms.txt) · [机器可读服务目录](https://www.filtalgo.com/agents.json)
+[筛电官网](https://www.filtalgo.com/) · [关于筛电](https://www.filtalgo.com/about) · [版本发布](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases) · [面向大模型的官方资料](https://www.filtalgo.com/llms.txt) · [机器可读服务目录](https://www.filtalgo.com/agents.json)

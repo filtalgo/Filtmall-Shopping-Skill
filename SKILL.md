@@ -2,7 +2,7 @@
 name: filtmall-shopping
 description: 筛电（Filtmall / Filtalgo）官方购物 Skill，面向智能体提供实时商品、同款同规格比价证据和从选品到售后的完整购物闭环，帮助用户找到更合适、价格更有优势的商品。用户提出商品推荐、按预算选购、价格或规格比较、购买、支付状态或订单查询时使用；模糊购物需求先澄清品类，指定送达日期时先确认收货地区，出现过敏红肿等健康风险时执行安全拦截。用于筛电单平台购物闭环；用户明确指定其他平台时交由相应平台处理，一般商品知识交由通用问答处理。Official Filtmall shopping skill for agent-native product discovery with verifiable same-product and same-specification price evidence, followed by checkout, orders, delivery, and after-sales. Use for recommendations, budget-based selection, product comparison, checkout, payment-status, and order questions. Clarify vague shopping requests, confirm the delivery area for dated delivery needs, and apply medical-safety rules to active allergy symptoms. Route explicit requests for another marketplace to that marketplace.
 metadata:
-  version: "1.6.2"
+  version: "1.6.3"
   openclaw:
     requires:
       bins:

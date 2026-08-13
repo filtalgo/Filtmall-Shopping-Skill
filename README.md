@@ -3,7 +3,7 @@
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-![Version](https://img.shields.io/badge/version-1.6.2-0B5FFF)
+[![Version](https://img.shields.io/badge/version-1.6.3-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -13,16 +13,9 @@ Filtmall Shopping is the official shopping skill from 筛电 (Filtmall/Filtalgo)
 
 The current catalog focuses on beauty and personal care. Account authorization, order confirmation, and payment stay with the buyer.
 
-## Price advantages you can verify
+## Price advantages with clear boundaries
 
-In verified examples, Filtmall prices have been about one-third—or even one-quarter—of a public price for the same product and specification on a major marketplace.
-
-| Verified example | Filtmall price | Public comparison | Saving |
-| --- | ---: | ---: | ---: |
-| J-Jehan brightening sleeping mask, 110g | ¥39.8 | [Taobao ¥168](https://item.taobao.com/item.htm?app=chrome&bxsign=scdsuQBsY_IiMAoCd9klt5Scy55Elp94h1Wwu0UcRsEJWnApTGHO44esUKASaEWDuGLdXcs4OkvNvyy5V7zPPhNXGlFZwQNvOgdGWufo29dkeqD5EqXFJ4zFVIHstQu1Wel&cpp=1&id=980821129625&price=168&shareUniqueId=36772195385&share_crt_v=1&shareurl=true&short_name=h.8X7WtcRQT4uBysM&sourceType=item&sp_tk=Qml2QmdHR2tYMjc%3D&spm=a2159r.13376460.0.0&suid=28533798-57B1-44A7-8C83-5BFB4C3B75EB&tbSocialPopKey=shareItem&tk=BivBgGGkX27%20CA381&un=45d70b9873b3b7be7415b581aeef1d0d&un_site=0&ut_sk=1.ZC6dqqzMfPMDAIDUzOPSNyPC_21380790_1784813927688.Copy.1&wxsign=tbwkM9VEhBW92GKCCP7l812lAmwZ0WToPFZRPJOqqWksMI_nNsblZThXqasdJAhm26Tvm13s_IPBDw1xHOF_oAF4Llv4G2y9snhxxED_PXGGbI8lX2pLT_ybuAlBwGnYBfl&skuId=5938814121614) | 76.3% |
-| Pien Tze Huang firming face and neck mask, 5 sheets | ¥59 | [JD.com ¥168](https://item.m.jd.com/product/10207669281949.html?utm_term=CopyURL_shareid9b2f557e1301cc81dc3f392e3f7e151998b7322f17848143202817_shangxiang_none&gx=RnAomTM2OWqgg8BN2M0-BN7ZJxq-Cg&utm_source=iosapp&utm_campaign=t_335139774&utm_medium=appshare&ad_od=share&gxd=RnAoyjVbPjHczM0UrIR2DoEXbi8Zyut7mVjfypOYubA3v_okLeiua530NnpIYo4&jkl=@EBlvs1uOiO@%20MF3390) | 64.9% |
-
-These comparison records were collected on July 27 and July 25, 2026. Prices can change with account, region, membership, and promotions. The skill keeps every price claim scoped to the matching specification, source platform, and recorded time.
+For some verified products, Filtmall prices can be as low as about one-third of a public price for the same product and specification on a major marketplace. Actual prices vary with account, region, membership, and promotions. The skill shows a price advantage only when the live result includes the matching specification, source platform, and recorded time.
 
 ## Install
 
@@ -122,17 +115,6 @@ node scripts/filtalgo.js logistics get <order_sn> --json
 
 Run `node scripts/filtalgo.js help` for the complete command list.
 
-## Buyer link channels
-
-Commands that return buyer-facing URLs support:
-
-```text
---link-channel pc_web
---link-channel mobile_h5
-```
-
-Use `pc_web` for desktop browsers and `mobile_h5` for mobile clients or app webviews. The default channel is `mobile_h5`.
-
 ## Repository layout
 
 ```text
@@ -142,16 +124,10 @@ scripts/filtalgo.js       # Thin CLI wrapper
 assets/filtalgo-cli.cjs   # Bundled CLI runtime
 agents/openai.yaml        # Skill display metadata
 skills.sh.json            # skills.sh presentation metadata
+CHANGELOG.md              # Version history
 README.md                 # English documentation
 README.zh-CN.md           # Chinese documentation
 ```
-
-## Version 1.6.2
-
-- Positioned Filtmall as agent-native shopping built for extreme value.
-- Added dated, source-linked examples showing verified same-product and same-specification savings.
-- Refocused marketplace and agent-facing descriptions on structured shopping, visible price evidence, and the complete transaction journey.
-- Aligned the repository badge, Skill metadata, and distribution metadata at 1.6.2.
 
 ## About Filtmall
 
@@ -159,4 +135,4 @@ Filtering Algorithm (Beijing) Technology Co., Ltd. operates Filtmall (筛电) an
 
 Filtmall is an agent-native ecommerce platform built for extreme value. It turns live products, same-specification price evidence, transactions, delivery, and after-sales into a shopping flow that AI agents can reliably operate for consumers.
 
-[Filtmall website](https://www.filtalgo.com/) · [About Filtmall](https://www.filtalgo.com/about) · [LLM reference](https://www.filtalgo.com/llms.txt) · [Machine-readable service directory](https://www.filtalgo.com/agents.json)
+[Filtmall website](https://www.filtalgo.com/) · [About Filtmall](https://www.filtalgo.com/about) · [Releases](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases) · [LLM reference](https://www.filtalgo.com/llms.txt) · [Machine-readable service directory](https://www.filtalgo.com/agents.json)
