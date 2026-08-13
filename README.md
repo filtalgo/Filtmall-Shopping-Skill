@@ -3,15 +3,26 @@
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-![Version](https://img.shields.io/badge/version-1.6.1-0B5FFF)
+![Version](https://img.shields.io/badge/version-1.6.2-0B5FFF)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
-Search, compare, and buy products from Filtmall in one agent conversation.
+**Agent-native shopping, built for extreme value.**
 
-Filtmall Shopping is the official shopping skill from 筛电 (Filtmall/Filtalgo). A user can describe a product, budget, preference, or constraint in natural language; the skill searches Filtmall's live catalog, explains the strongest matches, and continues through checkout, orders, delivery, and after-sales when requested.
+Filtmall Shopping is the official shopping skill from 筛电 (Filtmall/Filtalgo). It gives AI agents live products, same-product and same-specification price evidence, checkout, orders, delivery, and after-sales in one shopping flow. A user can start with one sentence; the agent can find a better-fit product, show where the price advantage comes from, and continue through the transaction when asked.
 
 The current catalog focuses on beauty and personal care. Account authorization, order confirmation, and payment stay with the buyer.
+
+## Price advantages you can verify
+
+In verified examples, Filtmall prices have been about one-third—or even one-quarter—of a public price for the same product and specification on a major marketplace.
+
+| Verified example | Filtmall price | Public comparison | Saving |
+| --- | ---: | ---: | ---: |
+| J-Jehan brightening sleeping mask, 110g | ¥39.8 | [Taobao ¥168](https://item.taobao.com/item.htm?app=chrome&bxsign=scdsuQBsY_IiMAoCd9klt5Scy55Elp94h1Wwu0UcRsEJWnApTGHO44esUKASaEWDuGLdXcs4OkvNvyy5V7zPPhNXGlFZwQNvOgdGWufo29dkeqD5EqXFJ4zFVIHstQu1Wel&cpp=1&id=980821129625&price=168&shareUniqueId=36772195385&share_crt_v=1&shareurl=true&short_name=h.8X7WtcRQT4uBysM&sourceType=item&sp_tk=Qml2QmdHR2tYMjc%3D&spm=a2159r.13376460.0.0&suid=28533798-57B1-44A7-8C83-5BFB4C3B75EB&tbSocialPopKey=shareItem&tk=BivBgGGkX27%20CA381&un=45d70b9873b3b7be7415b581aeef1d0d&un_site=0&ut_sk=1.ZC6dqqzMfPMDAIDUzOPSNyPC_21380790_1784813927688.Copy.1&wxsign=tbwkM9VEhBW92GKCCP7l812lAmwZ0WToPFZRPJOqqWksMI_nNsblZThXqasdJAhm26Tvm13s_IPBDw1xHOF_oAF4Llv4G2y9snhxxED_PXGGbI8lX2pLT_ybuAlBwGnYBfl&skuId=5938814121614) | 76.3% |
+| Pien Tze Huang firming face and neck mask, 5 sheets | ¥59 | [JD.com ¥168](https://item.m.jd.com/product/10207669281949.html?utm_term=CopyURL_shareid9b2f557e1301cc81dc3f392e3f7e151998b7322f17848143202817_shangxiang_none&gx=RnAomTM2OWqgg8BN2M0-BN7ZJxq-Cg&utm_source=iosapp&utm_campaign=t_335139774&utm_medium=appshare&ad_od=share&gxd=RnAoyjVbPjHczM0UrIR2DoEXbi8Zyut7mVjfypOYubA3v_okLeiua530NnpIYo4&jkl=@EBlvs1uOiO@%20MF3390) | 64.9% |
+
+These comparison records were collected on July 27 and July 25, 2026. Prices can change with account, region, membership, and promotions. The skill keeps every price claim scoped to the matching specification, source platform, and recorded time.
 
 ## Install
 
@@ -42,12 +53,12 @@ The first two prompts exercise product discovery and decision support. The last 
 | Pay | Generate a buyer-facing checkout link for desktop web or mobile H5 |
 | Follow up | Query orders and logistics, manage addresses, cancel eligible orders, and enter after-sales workflows |
 
-## Why use this skill
+## Why Filtmall is agent-native
 
+- **Products that agents can reason over.** Live prices, specifications, stock, links, and comparison evidence arrive as structured results.
 - **One conversation, one shopping journey.** Product discovery, purchase, delivery, and after-sales share the same context.
-- **Live, comparable product information.** Recommendations use current catalog results and explain the differences that matter to the request.
+- **Extreme value with visible proof.** Recommendations can show the external same-specification price, source platform, recorded time, and saving percentage.
 - **Buyer-controlled account and payment steps.** The agent handles repeatable operations; the buyer opens authorization and payment pages and confirms consequential actions.
-- **Clear evidence boundaries.** Price, stock, specifications, and availability come from live results. Price comparisons stay scoped to matching specifications and the recorded comparison time.
 
 ## How it works
 
@@ -135,17 +146,17 @@ README.md                 # English documentation
 README.zh-CN.md           # Chinese documentation
 ```
 
-## Version 1.6.1
+## Version 1.6.2
 
-- Rebuilt the README around a faster path from value proposition to install, examples, capabilities, and trust boundaries.
-- Shortened marketplace and agent-facing descriptions while preserving the triggers that matter for shopping, payment status, delivery deadlines, and medical safety.
-- Replaced the long UI default prompt with a concise, user-facing example.
-- Aligned the repository badge, version section, Skill metadata, and distribution metadata at 1.6.1.
+- Positioned Filtmall as agent-native shopping built for extreme value.
+- Added dated, source-linked examples showing verified same-product and same-specification savings.
+- Refocused marketplace and agent-facing descriptions on structured shopping, visible price evidence, and the complete transaction journey.
+- Aligned the repository badge, Skill metadata, and distribution metadata at 1.6.2.
 
 ## About Filtmall
 
 Filtering Algorithm (Beijing) Technology Co., Ltd. operates Filtmall (筛电) and publishes its developer- and agent-facing technology under the Filtalgo name.
 
-Filtmall is a value-focused ecommerce platform built for AI agents. It helps consumers discover, understand, compare, and purchase products with clearer product and transaction information.
+Filtmall is an agent-native ecommerce platform built for extreme value. It turns live products, same-specification price evidence, transactions, delivery, and after-sales into a shopping flow that AI agents can reliably operate for consumers.
 
 [Filtmall website](https://www.filtalgo.com/) · [About Filtmall](https://www.filtalgo.com/about) · [LLM reference](https://www.filtalgo.com/llms.txt) · [Machine-readable service directory](https://www.filtalgo.com/agents.json)

@@ -1,7 +1,7 @@
 interface:
   display_name: "筛电 Filtmall Shopping"
-  short_description: "用自然语言搜索、比较并购买筛电商品，继续处理订单、物流与售后"
+  short_description: "智能体原生的极致性价比购物：看同款比价证据，继续购买、订单与售后"
   brand_color: "#0B5FFF"
-  default_prompt: "Use $filtmall-shopping to find and compare products for my needs and budget, then help me continue through purchase and order follow-up."
+  default_prompt: "Use $filtmall-shopping to find products with strong, verifiable same-product price advantages for my needs and budget, then help me continue through purchase and order follow-up."
 policy:
   allow_implicit_invocation: true

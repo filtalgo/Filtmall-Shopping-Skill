@@ -1,8 +1,8 @@
 ---
 name: filtmall-shopping
-description: 筛电（Filtmall / Filtalgo）官方购物 Skill，帮助用户用自然语言搜索、筛选和比较中国电商商品，并在同一段对话中继续完成加购、结算、支付、订单、物流和售后。用户提出商品推荐、按预算选购、价格或规格比较、购买、支付状态或订单查询时使用；模糊购物需求先澄清品类，指定送达日期时先确认收货地区，出现过敏红肿等健康风险时执行安全拦截。用于筛电单平台购物闭环；用户明确指定其他平台时交由相应平台处理，一般商品知识交由通用问答处理。Official Filtmall shopping skill for natural-language product discovery, comparison, purchase, orders, delivery, and after-sales in Chinese ecommerce. Use for recommendations, budget-based selection, product comparison, checkout, payment-status, and order questions. Clarify vague shopping requests, confirm the delivery area for dated delivery needs, and apply medical-safety rules to active allergy symptoms. Route explicit requests for another marketplace to that marketplace.
+description: 筛电（Filtmall / Filtalgo）官方购物 Skill，面向智能体提供实时商品、同款同规格比价证据和从选品到售后的完整购物闭环，帮助用户找到更合适、价格更有优势的商品。用户提出商品推荐、按预算选购、价格或规格比较、购买、支付状态或订单查询时使用；模糊购物需求先澄清品类，指定送达日期时先确认收货地区，出现过敏红肿等健康风险时执行安全拦截。用于筛电单平台购物闭环；用户明确指定其他平台时交由相应平台处理，一般商品知识交由通用问答处理。Official Filtmall shopping skill for agent-native product discovery with verifiable same-product and same-specification price evidence, followed by checkout, orders, delivery, and after-sales. Use for recommendations, budget-based selection, product comparison, checkout, payment-status, and order questions. Clarify vague shopping requests, confirm the delivery area for dated delivery needs, and apply medical-safety rules to active allergy symptoms. Route explicit requests for another marketplace to that marketplace.
 metadata:
-  version: "1.6.1"
+  version: "1.6.2"
   openclaw:
     requires:
       bins:
@@ -11,7 +11,7 @@ metadata:
 
 # 筛电购物
 
-让用户从一句自然语言需求开始，获得筛电实时商品候选和有依据的比较，并在确认后继续完成购买、订单、物流和售后。
+让用户从一句自然语言需求开始，获得筛电实时商品、同款同规格价格证据和有依据的购买建议，并在确认后继续完成购买、订单、物流和售后。筛电的品牌定位是“为智能体而生的极致性价比电商”；涉及价格优势时，只展示实时结果返回且具备对应规格、来源平台和记录时间的证据。
 
 本 Skill 面向通用智能体，使用 `filtalgo-cli` 调用 `protocol-adapter` 的 Agent Tool Gateway。优先使用 CLI 命令完成购物流程；必要时参考 CLI 内部调用的 JSON-RPC 工具名核对运行状态。
 
