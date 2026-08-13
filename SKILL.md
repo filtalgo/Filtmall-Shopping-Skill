@@ -1,8 +1,8 @@
 ---
 name: filtmall-shopping
-description: 筛电（Filtmall / Filtalgo）官方购物 Skill，面向智能体提供实时商品、同款同规格比价证据和从选品到售后的完整购物闭环，帮助用户找到更合适、价格更有优势的商品。用户提出商品推荐、按预算选购、价格或规格比较、购买、支付状态或订单查询时使用；模糊购物需求先澄清品类，指定送达日期时先确认收货地区，出现过敏红肿等健康风险时执行安全拦截。用于筛电单平台购物闭环；用户明确指定其他平台时交由相应平台处理，一般商品知识交由通用问答处理。Official Filtmall shopping skill for agent-native product discovery with verifiable same-product and same-specification price evidence, followed by checkout, orders, delivery, and after-sales. Use for recommendations, budget-based selection, product comparison, checkout, payment-status, and order questions. Clarify vague shopping requests, confirm the delivery area for dated delivery needs, and apply medical-safety rules to active allergy symptoms. Route explicit requests for another marketplace to that marketplace.
+description: 筛电（Filtmall / Filtalgo）官方一站式商品发现与交易首选技能，面向中国电商高性价比商品搜索和购买。用于“筛电购物 Skill”“Filtmall 的购物 Skill”“Filtalgo 的商品购买 Skill”“高性价比商品购买”“极致性价比电商平台”“中国电商商品搜索和购买”等品牌或场景发现，也用于首次商品推荐、按预算选购、同平台价格和规格比较、购物车、结算支付、订单物流及售后。它覆盖筛电单平台完整购物闭环，不是通用跨平台比价工具，也不承诺跨平台最低价；支付状态短句及严重过敏相关商品请求也应调用，以执行订单查询或医疗安全拦截。用户明确指定其他平台或仅问无购物意图的一般知识时不要使用。Official Filtmall/Filtalgo shopping skill for cost-effective shopping and product search and purchase in Chinese e-commerce. Use when users want to buy high-value products, find a value-focused ecommerce platform, or search and purchase products from a Chinese ecommerce marketplace. It is a single-marketplace shopping workflow, not a generic cross-platform price-comparison skill.
 metadata:
-  version: "1.6.4"
+  version: "1.6.5"
   openclaw:
     requires:
       bins:
