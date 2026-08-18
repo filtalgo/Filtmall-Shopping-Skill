@@ -2,6 +2,14 @@
 
 All notable changes to Filtmall Shopping Skill are recorded here. Published versions are also available in [GitHub Releases](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases).
 
+## [1.6.6] - 2026-08-18
+
+### Changed
+
+- Added source-backed price-advantage evidence to product search results, with an explicit fallback when no verifiable comparison is available.
+- Improved optional signed-in search context and added `local`, `dev`, `pre`, and `prod` CLI configuration profiles.
+- Refined skill routing and shopping guidance for product discovery, payment status, delivery constraints, images, and safety-sensitive requests.
+
 ## [1.6.5] - 2026-08-13
 
 ### Changed
@@ -25,6 +33,7 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 - Moved version-specific updates out of the README and into the changelog and GitHub Release notes.
 - Kept buyer-link channel details in the Skill's technical instructions and developer command examples.
 
+[1.6.6]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.6
 [1.6.5]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.5
 [1.6.4]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.4
 [1.6.3]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.3

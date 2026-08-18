@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+.idea/
+*.tgz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+credentials.json
+config.local.yaml
+test-results/

@@ -27,8 +27,8 @@ AUTH
 CONFIG
   config show [--show-secrets]
   config set <key> <value>
-  config reset
-  config use
+  config reset [local|dev|pre|prod]
+  config use <local|dev|pre|prod>
 
 SHOPPING
   tools                         List available agent tools
@@ -645,7 +645,7 @@ async function handleSearch(args, opts, { fullPipeline = true } = {}) {
   }
 
   const { toolName, args: searchArgs } = buildSearchCall(query, opts);
-  const searchResult = unwrapMcpToolResult(await api.mcpCall(toolName, searchArgs, { authOptional: true }));
+  const searchResult = await callOptionalAuthSearchTool(api, toolName, searchArgs);
   const hydratedResult = await hydrateSearchResult(api, searchResult, searchArgs.limit);
   const result = normalizeSearchResult(searchResult, hydratedResult);
   const response = buildSearchResponse(query, result, { mode: 'spu_fallback' });
@@ -721,9 +721,20 @@ async function runSearchPipeline(api, query, opts = {}) {
 }
 
 async function callSearchTool(api, toolsUsed, toolName, args) {
-  const result = unwrapMcpToolResult(await api.mcpCall(toolName, args, { authOptional: true }));
+  const result = await callOptionalAuthSearchTool(api, toolName, args);
   toolsUsed.push(toolName);
   return result;
+}
+
+async function callOptionalAuthSearchTool(api, toolName, args) {
+  const context = optionalGatewayContext();
+  const existingContext = args && args.context && typeof args.context === 'object' && !Array.isArray(args.context)
+    ? args.context
+    : {};
+  const callArgs = context
+    ? { ...args, context: { ...context, ...existingContext } }
+    : args;
+  return unwrapMcpToolResult(await api.mcpCall(toolName, callArgs, { authOptional: true }));
 }
 
 async function handleSearchTools(args, opts) {
@@ -847,7 +858,7 @@ async function handleSearchTools(args, opts) {
   }
 
   const api = require('../lib/api');
-  const result = unwrapMcpToolResult(await api.mcpCall(toolName, toolArgs, { authOptional: true }));
+  const result = await callOptionalAuthSearchTool(api, toolName, toolArgs);
   return output(opts, { ok: true, tool: toolName, result }, () => printGatewayPayload(result));
 }
 
@@ -914,6 +925,16 @@ async function gatewayContext({ mutating = false } = {}) {
   }
 
   throw new CliError('Not logged in. Run "filtalgo auth login" first.', 'NOT_LOGGED_IN');
+}
+
+function optionalGatewayContext() {
+  const store = require('../lib/store');
+  const savedCredentials = store.load();
+  const agentSession = resolveAgentSessionSelection(store, savedCredentials, runtimeOptions);
+  if (!agentSession || (agentSession.source === 'store' && store.isExpired(savedCredentials))) {
+    return null;
+  }
+  return { agent_session_id: agentSession.agentSessionId };
 }
 
 async function callGatewayTool(toolName, args, opts) {
@@ -1720,10 +1741,10 @@ async function hydrateSearchResult(api, result, limit, toolsUsed) {
   if (!identity || !Array.isArray(result.items) || result.items.length === 0) return null;
 
   try {
-    const hydrated = unwrapMcpToolResult(await api.mcpCall('hydrate_products', {
+    const hydrated = await callOptionalAuthSearchTool(api, 'hydrate_products', {
       ...identity,
       limit,
-    }, { authOptional: true }));
+    });
     if (Array.isArray(toolsUsed)) toolsUsed.push('hydrate_products');
     return hydrated;
   } catch {
@@ -1775,6 +1796,7 @@ function searchResponseItem(card, index, query) {
     card && card.detail_url,
     selectedBuyerLink(card && card.buyer_link_targets),
   );
+  const priceAdvantage = normalizePriceAdvantage(card && card.price_advantage);
   return {
     rank: index + 1,
     spu_id: searchProductID(card),
@@ -1789,8 +1811,53 @@ function searchResponseItem(card, index, query) {
     attributes: card && card.spu_attributes && typeof card.spu_attributes === 'object'
       ? card.spu_attributes
       : {},
+    price_advantage: priceAdvantage,
     detail_url: detailURL,
     match_basis: `搜索服务针对“${query}”返回并排序；未返回的功效或肤感信息不得推断`,
+  };
+}
+
+function normalizePriceAdvantage(value) {
+  if (!value || typeof value !== 'object' || value.status !== 'available') {
+    return {
+      status: 'unavailable',
+      unavailable_message: firstNonEmpty(value && value.unavailable_message) || '暂无可核验的比价依据',
+      samples: [],
+    };
+  }
+  const samples = Array.isArray(value.samples)
+    ? value.samples.map(normalizePriceAdvantageSample).filter(Boolean)
+    : [];
+  if (samples.length === 0) {
+    return {
+      status: 'unavailable',
+      unavailable_message: '暂无可核验的比价依据',
+      samples: [],
+    };
+  }
+  return {
+    status: 'available',
+    current_landed_price: firstDefined(value.current_landed_price, null),
+    currency: String(value.currency || 'CNY'),
+    disclaimer: firstNonEmpty(value.disclaimer),
+    samples,
+  };
+}
+
+function normalizePriceAdvantageSample(value) {
+  if (!value || typeof value !== 'object') return null;
+  const platformName = firstNonEmpty(value.platform_name);
+  const sourceURL = firstNonEmpty(value.source_url);
+  const collectedAt = firstNonEmpty(value.collected_at);
+  if (!platformName || !sourceURL || !collectedAt) return null;
+  return {
+    platform_name: platformName,
+    comparison_price: firstDefined(value.comparison_price, null),
+    advantage_amount: firstDefined(value.advantage_amount, null),
+    advantage_rate: firstDefined(value.advantage_rate, null),
+    source_url: sourceURL,
+    collected_at: collectedAt,
+    valid_until: firstNonEmpty(value.valid_until),
   };
 }
 
@@ -2013,18 +2080,16 @@ const YAML = require('yaml');
 const CONFIG_DIR = path.join(os.homedir(), '.filtalgo');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.yaml');
 
-const DEFAULT_CONFIG = {
-  profile: 'prod',
-  scopes: [
-    'openid',
-    'profile',
-    'order:read',
-    'order:create',
-    'cart:write',
-    'address:read',
-  ],
-  adapter_url: 'https://filtalgo.com',
-  device_client_id: 'filtalgo-cli-device',
+const SHARED_SCOPES = [
+  'openid',
+  'profile',
+  'order:read',
+  'order:create',
+  'cart:write',
+  'address:read',
+];
+
+const DEVICE_PATHS = {
   device_start_path: '/agent-auth/device/start',
   device_status_path: '/agent-auth/device/status',
   device_token_path: '/agent-auth/device/token',
@@ -2032,10 +2097,38 @@ const DEFAULT_CONFIG = {
 };
 
 const CONFIG_PROFILES = {
-  prod: DEFAULT_CONFIG,
+  local: {
+    profile: 'local',
+    scopes: SHARED_SCOPES,
+    adapter_url: 'http://127.0.0.1:10080',
+    device_client_id: 'cli_device',
+    ...DEVICE_PATHS,
+  },
+  dev: {
+    profile: 'dev',
+    scopes: SHARED_SCOPES,
+    adapter_url: 'https://dev-home.filtalgo.com',
+    device_client_id: 'cli_device',
+    ...DEVICE_PATHS,
+  },
+  pre: {
+    profile: 'pre',
+    scopes: SHARED_SCOPES,
+    adapter_url: 'https://pre-home.filtalgo.com',
+    device_client_id: 'cli_device',
+    ...DEVICE_PATHS,
+  },
+  prod: {
+    profile: 'prod',
+    scopes: SHARED_SCOPES,
+    adapter_url: 'https://filtalgo.com',
+    device_client_id: 'filtalgo-cli-device',
+    ...DEVICE_PATHS,
+  },
 };
 
 const DEFAULT_PROFILE = 'prod';
+const DEFAULT_CONFIG = { ...CONFIG_PROFILES[DEFAULT_PROFILE] };
 
 function ensureConfigDir() {
   if (!fs.existsSync(CONFIG_DIR)) {
@@ -2043,6 +2136,7 @@ function ensureConfigDir() {
   }
 }
 
+/** 默认使用 prod，同时允许宿主 config.yaml 显式选择 local/dev/pre/prod 或自定义 Gateway。 */
 function load() {
   ensureConfigDir();
 
@@ -2053,18 +2147,23 @@ function load() {
 
   const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
   const parsed = YAML.parse(raw) || {};
-  return sanitizeConfig({ ...DEFAULT_CONFIG, ...parsed, profile: 'prod' });
+  const selected = CONFIG_PROFILES[parsed.profile] || DEFAULT_CONFIG;
+  return sanitizeConfig({ ...selected, ...parsed });
 }
 
 function save(config) {
   ensureConfigDir();
-  const yaml = YAML.stringify(sanitizeConfig({ ...config, profile: 'prod' }));
+  const yaml = YAML.stringify(sanitizeConfig(config));
   fs.writeFileSync(CONFIG_FILE, yaml, { encoding: 'utf8', mode: 0o600 });
 }
 
-function reset() {
-  save({ ...DEFAULT_CONFIG });
-  return { ...DEFAULT_CONFIG };
+function reset(profile = DEFAULT_PROFILE) {
+  const selected = CONFIG_PROFILES[profile];
+  if (!selected) {
+    throw new Error(`Unknown profile "${profile}". Available profiles: ${Object.keys(CONFIG_PROFILES).join(', ')}`);
+  }
+  save({ ...selected });
+  return { ...selected };
 }
 
 function setValue(key, value) {
@@ -2123,8 +2222,8 @@ module.exports = {
   }
 },
 2: {
-  filename: "/snapshot/filtalgo-cli/external/index.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/index.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist",
   deps: {"./compose/composer.js":3,"./doc/Document.js":7,"./schema/Schema.js":25,"./errors.js":50,"./nodes/Alias.js":8,"./nodes/identity.js":5,"./nodes/Pair.js":16,"./nodes/Scalar.js":15,"./nodes/YAMLMap.js":27,"./nodes/YAMLSeq.js":30,"./parse/cst.js":66,"./parse/lexer.js":70,"./parse/line-counter.js":71,"./parse/parser.js":72,"./public-api.js":73,"./visit.js":6},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2181,13 +2280,13 @@ exports.visitAsync = visit.visitAsync;
   }
 },
 3: {
-  filename: "/snapshot/filtalgo-cli/external/composer.js",
-  dirname: "/snapshot/filtalgo-cli/external",
-  deps: {"node:process":null,"../doc/directives.js":4,"../doc/Document.js":7,"../errors.js":50,"../nodes/identity.js":5,"./compose-doc.js":51,"./resolve-end.js":61},
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/composer.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
+  deps: {"process":null,"../doc/directives.js":4,"../doc/Document.js":7,"../errors.js":50,"../nodes/identity.js":5,"./compose-doc.js":51,"./resolve-end.js":61},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_process = require('node:process');
+var node_process = require('process');
 var directives = require('../doc/directives.js');
 var Document = require('../doc/Document.js');
 var errors = require('../errors.js');
@@ -2411,8 +2510,8 @@ exports.Composer = Composer;
   }
 },
 4: {
-  filename: "/snapshot/filtalgo-cli/external/directives.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc/directives.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc",
   deps: {"../nodes/identity.js":5,"../visit.js":6},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2597,8 +2696,8 @@ exports.Directives = Directives;
   }
 },
 5: {
-  filename: "/snapshot/filtalgo-cli/external/identity.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/identity.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2658,8 +2757,8 @@ exports.isSeq = isSeq;
   }
 },
 6: {
-  filename: "/snapshot/filtalgo-cli/external/visit.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/visit.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist",
   deps: {"./nodes/identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -2902,8 +3001,8 @@ exports.visitAsync = visitAsync;
   }
 },
 7: {
-  filename: "/snapshot/filtalgo-cli/external/Document.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc/Document.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc",
   deps: {"../nodes/Alias.js":8,"../nodes/Collection.js":13,"../nodes/identity.js":5,"../nodes/Pair.js":16,"../nodes/toJS.js":12,"../schema/Schema.js":25,"../stringify/stringifyDocument.js":49,"./anchors.js":9,"./applyReviver.js":11,"./createNode.js":14,"./directives.js":4},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3247,8 +3346,8 @@ exports.Document = Document;
   }
 },
 8: {
-  filename: "/snapshot/filtalgo-cli/external/Alias.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/Alias.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../doc/anchors.js":9,"../visit.js":6,"./identity.js":5,"./Node.js":10,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3273,23 +3372,38 @@ class Alias extends Node.NodeBase {
      * Resolve the value of this alias within `doc`, finding the last
      * instance of the `source` anchor before this node.
      */
-    resolve(doc) {
+    resolve(doc, ctx) {
+        if (ctx?.maxAliasCount === 0)
+            throw new ReferenceError('Alias resolution is disabled');
+        let nodes;
+        if (ctx?.aliasResolveCache) {
+            nodes = ctx.aliasResolveCache;
+        }
+        else {
+            nodes = [];
+            visit.visit(doc, {
+                Node: (_key, node) => {
+                    if (identity.isAlias(node) || identity.hasAnchor(node))
+                        nodes.push(node);
+                }
+            });
+            if (ctx)
+                ctx.aliasResolveCache = nodes;
+        }
         let found = undefined;
-        visit.visit(doc, {
-            Node: (_key, node) => {
-                if (node === this)
-                    return visit.visit.BREAK;
-                if (node.anchor === this.source)
-                    found = node;
-            }
-        });
+        for (const node of nodes) {
+            if (node === this)
+                break;
+            if (node.anchor === this.source)
+                found = node;
+        }
         return found;
     }
     toJSON(_arg, ctx) {
         if (!ctx)
             return { source: this.source };
         const { anchors, doc, maxAliasCount } = ctx;
-        const source = this.resolve(doc);
+        const source = this.resolve(doc, ctx);
         if (!source) {
             const msg = `Unresolved alias (the anchor must be set before the alias): ${this.source}`;
             throw new ReferenceError(msg);
@@ -3301,7 +3415,7 @@ class Alias extends Node.NodeBase {
             data = anchors.get(source);
         }
         /* istanbul ignore if */
-        if (!data || data.res === undefined) {
+        if (data?.res === undefined) {
             const msg = 'This should not happen: Alias anchor was not resolved?';
             throw new ReferenceError(msg);
         }
@@ -3358,8 +3472,8 @@ exports.Alias = Alias;
   }
 },
 9: {
-  filename: "/snapshot/filtalgo-cli/external/anchors.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc/anchors.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc",
   deps: {"../nodes/identity.js":5,"../visit.js":6},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3405,8 +3519,7 @@ function createNodeAnchors(doc, prefix) {
     return {
         onAnchor: (source) => {
             aliasObjects.push(source);
-            if (!prevAnchors)
-                prevAnchors = anchorNames(doc);
+            prevAnchors ?? (prevAnchors = anchorNames(doc));
             const anchor = findNewAnchor(prefix, prevAnchors);
             prevAnchors.add(anchor);
             return anchor;
@@ -3443,8 +3556,8 @@ exports.findNewAnchor = findNewAnchor;
   }
 },
 10: {
-  filename: "/snapshot/filtalgo-cli/external/Node.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/Node.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../doc/applyReviver.js":11,"./identity.js":5,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3491,8 +3604,8 @@ exports.NodeBase = NodeBase;
   }
 },
 11: {
-  filename: "/snapshot/filtalgo-cli/external/applyReviver.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc/applyReviver.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3556,8 +3669,8 @@ exports.applyReviver = applyReviver;
   }
 },
 12: {
-  filename: "/snapshot/filtalgo-cli/external/toJS.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/toJS.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"./identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3603,8 +3716,8 @@ exports.toJS = toJS;
   }
 },
 13: {
-  filename: "/snapshot/filtalgo-cli/external/Collection.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/Collection.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../doc/createNode.js":14,"./identity.js":5,"./Node.js":10},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3762,8 +3875,8 @@ exports.isEmptyPath = isEmptyPath;
   }
 },
 14: {
-  filename: "/snapshot/filtalgo-cli/external/createNode.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc/createNode.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/doc",
   deps: {"../nodes/Alias.js":8,"../nodes/identity.js":5,"../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3808,8 +3921,7 @@ function createNode(value, tagName, ctx) {
     if (aliasDuplicateObjects && value && typeof value === 'object') {
         ref = sourceObjects.get(value);
         if (ref) {
-            if (!ref.anchor)
-                ref.anchor = onAnchor(value);
+            ref.anchor ?? (ref.anchor = onAnchor(value));
             return new Alias.Alias(ref.anchor);
         }
         else {
@@ -3861,8 +3973,8 @@ exports.createNode = createNode;
   }
 },
 15: {
-  filename: "/snapshot/filtalgo-cli/external/Scalar.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/Scalar.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"./identity.js":5,"./Node.js":10,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3896,8 +4008,8 @@ exports.isScalarValue = isScalarValue;
   }
 },
 16: {
-  filename: "/snapshot/filtalgo-cli/external/Pair.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/Pair.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../doc/createNode.js":14,"../stringify/stringifyPair.js":17,"./addPairToJSMap.js":22,"./identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -3943,8 +4055,8 @@ exports.createPair = createPair;
   }
 },
 17: {
-  filename: "/snapshot/filtalgo-cli/external/stringifyPair.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyPair.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {"../nodes/identity.js":5,"../nodes/Scalar.js":15,"./stringify.js":18,"./stringifyComment.js":19},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4052,7 +4164,7 @@ function stringifyPair({ key, value }, ctx, onComment, onChompKeep) {
             ws += `\n${stringifyComment.indentComment(cs, ctx.indent)}`;
         }
         if (valueStr === '' && !ctx.inFlow) {
-            if (ws === '\n')
+            if (ws === '\n' && valueComment)
                 ws = '\n\n';
         }
         else {
@@ -4103,8 +4215,8 @@ exports.stringifyPair = stringifyPair;
   }
 },
 18: {
-  filename: "/snapshot/filtalgo-cli/external/stringify.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringify.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {"../doc/anchors.js":9,"../nodes/identity.js":5,"./stringifyComment.js":19,"./stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4131,6 +4243,7 @@ function createStringifyContext(doc, options) {
         nullStr: 'null',
         simpleKeys: false,
         singleQuote: null,
+        trailingComma: false,
         trueStr: 'true',
         verifyAliasOrder: true
     }, doc.schema.toStringOptions, options);
@@ -4179,7 +4292,7 @@ function getTagObject(tags, item) {
         tagObj = tags.find(t => t.nodeClass && obj instanceof t.nodeClass);
     }
     if (!tagObj) {
-        const name = obj?.constructor?.name ?? typeof obj;
+        const name = obj?.constructor?.name ?? (obj === null ? 'null' : typeof obj);
         throw new Error(`Tag not resolved for ${name} value`);
     }
     return tagObj;
@@ -4194,7 +4307,7 @@ function stringifyProps(node, tagObj, { anchors: anchors$1, doc }) {
         anchors$1.add(anchor);
         props.push(`&${anchor}`);
     }
-    const tag = node.tag ? node.tag : tagObj.default ? null : tagObj.tag;
+    const tag = node.tag ?? (tagObj.default ? null : tagObj.tag);
     if (tag)
         props.push(doc.directives.tagString(tag));
     return props.join(' ');
@@ -4220,8 +4333,7 @@ function stringify(item, ctx, onComment, onChompKeep) {
     const node = identity.isNode(item)
         ? item
         : ctx.doc.createNode(item, { onTagObj: o => (tagObj = o) });
-    if (!tagObj)
-        tagObj = getTagObject(ctx.doc.schema.tags, node);
+    tagObj ?? (tagObj = getTagObject(ctx.doc.schema.tags, node));
     const props = stringifyProps(node, tagObj, ctx);
     if (props.length > 0)
         ctx.indentAtStart = (ctx.indentAtStart ?? 0) + props.length + 1;
@@ -4243,8 +4355,8 @@ exports.stringify = stringify;
   }
 },
 19: {
-  filename: "/snapshot/filtalgo-cli/external/stringifyComment.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyComment.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4275,8 +4387,8 @@ exports.stringifyComment = stringifyComment;
   }
 },
 20: {
-  filename: "/snapshot/filtalgo-cli/external/stringifyString.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyString.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {"../nodes/Scalar.js":15,"./foldFlowLines.js":21},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4442,7 +4554,7 @@ function blockString({ comment, type, value }, ctx, onComment, onChompKeep) {
     const { blockQuote, commentString, lineWidth } = ctx.options;
     // 1. Block can't end in whitespace unless the last line is non-empty.
     // 2. Strings consisting of only whitespace are best rendered explicitly.
-    if (!blockQuote || /\n[\t ]+$/.test(value) || /^\s*$/.test(value)) {
+    if (!blockQuote || /\n[\t ]+$/.test(value)) {
         return quotedString(value, ctx);
     }
     const indent = ctx.indent ||
@@ -4536,10 +4648,9 @@ function plainString(item, ctx, onComment, onChompKeep) {
         (inFlow && /[[\]{},]/.test(value))) {
         return quotedString(value, ctx);
     }
-    if (!value ||
-        /^[\n\t ,[\]{}#&*!|>'"%@`]|^[?-]$|^[?-][ \t]|[\n:][ \t]|[ \t]\n|[\n\t ]#|[\n\t :]$/.test(value)) {
+    if (/^[\n\t ,[\]{}#&*!|>'"%@`]|^[?-]$|^[?-][ \t]|[\n:][ \t]|[ \t]\n|[\n\t ]#|[\n\t :]$/.test(value)) {
         // not allowed:
-        // - empty string, '-' or '?'
+        // - '-' or '?'
         // - start with an indicator character (except [?:-]) or /[?-] /
         // - '\n ', ': ' or ' \n' anywhere
         // - '#' not preceded by a non-space char
@@ -4622,8 +4733,8 @@ exports.stringifyString = stringifyString;
   }
 },
 21: {
-  filename: "/snapshot/filtalgo-cli/external/foldFlowLines.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/foldFlowLines.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4781,8 +4892,8 @@ exports.foldFlowLines = foldFlowLines;
   }
 },
 22: {
-  filename: "/snapshot/filtalgo-cli/external/addPairToJSMap.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/addPairToJSMap.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../log.js":23,"../schema/yaml-1.1/merge.js":24,"../stringify/stringify.js":18,"./identity.js":5,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4826,6 +4937,7 @@ function addPairToJSMap(ctx, map, { key, value }) {
 function stringifyKey(key, jsKey, ctx) {
     if (jsKey === null)
         return '';
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string
     if (typeof jsKey !== 'object')
         return String(jsKey);
     if (identity.isNode(key) && ctx?.doc) {
@@ -4853,13 +4965,13 @@ exports.addPairToJSMap = addPairToJSMap;
   }
 },
 23: {
-  filename: "/snapshot/filtalgo-cli/external/log.js",
-  dirname: "/snapshot/filtalgo-cli/external",
-  deps: {"node:process":null},
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/log.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist",
+  deps: {"process":null},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_process = require('node:process');
+var node_process = require('process');
 
 function debug(logLevel, ...messages) {
     if (logLevel === 'debug')
@@ -4880,8 +4992,8 @@ exports.warn = warn;
   }
 },
 24: {
-  filename: "/snapshot/filtalgo-cli/external/merge.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/merge.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../nodes/identity.js":5,"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -4914,18 +5026,18 @@ const isMergeKey = (ctx, key) => (merge.identify(key) ||
         merge.identify(key.value))) &&
     ctx?.doc.schema.tags.some(tag => tag.tag === merge.tag && tag.default);
 function addMergeToJSMap(ctx, map, value) {
-    value = ctx && identity.isAlias(value) ? value.resolve(ctx.doc) : value;
-    if (identity.isSeq(value))
-        for (const it of value.items)
+    const source = resolveAliasValue(ctx, value);
+    if (identity.isSeq(source))
+        for (const it of source.items)
             mergeValue(ctx, map, it);
-    else if (Array.isArray(value))
-        for (const it of value)
+    else if (Array.isArray(source))
+        for (const it of source)
             mergeValue(ctx, map, it);
     else
-        mergeValue(ctx, map, value);
+        mergeValue(ctx, map, source);
 }
 function mergeValue(ctx, map, value) {
-    const source = ctx && identity.isAlias(value) ? value.resolve(ctx.doc) : value;
+    const source = resolveAliasValue(ctx, value);
     if (!identity.isMap(source))
         throw new Error('Merge sources must be maps or map aliases');
     const srcMap = source.toJSON(null, ctx, Map);
@@ -4948,6 +5060,9 @@ function mergeValue(ctx, map, value) {
     }
     return map;
 }
+function resolveAliasValue(ctx, value) {
+    return ctx && identity.isAlias(value) ? value.resolve(ctx.doc, ctx) : value;
+}
 
 exports.addMergeToJSMap = addMergeToJSMap;
 exports.isMergeKey = isMergeKey;
@@ -4956,8 +5071,8 @@ exports.merge = merge;
   }
 },
 25: {
-  filename: "/snapshot/filtalgo-cli/external/Schema.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/Schema.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema",
   deps: {"../nodes/identity.js":5,"./common/map.js":26,"./common/seq.js":29,"./common/string.js":31,"./tags.js":32},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5003,8 +5118,8 @@ exports.Schema = Schema;
   }
 },
 26: {
-  filename: "/snapshot/filtalgo-cli/external/map.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common/map.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common",
   deps: {"../../nodes/identity.js":5,"../../nodes/YAMLMap.js":27},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5030,8 +5145,8 @@ exports.map = map;
   }
 },
 27: {
-  filename: "/snapshot/filtalgo-cli/external/YAMLMap.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/YAMLMap.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../stringify/stringifyCollection.js":28,"./addPairToJSMap.js":22,"./Collection.js":13,"./identity.js":5,"./Pair.js":16,"./Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5185,8 +5300,8 @@ exports.findPair = findPair;
   }
 },
 28: {
-  filename: "/snapshot/filtalgo-cli/external/stringifyCollection.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyCollection.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {"../nodes/identity.js":5,"./stringify.js":18,"./stringifyComment.js":19},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5295,12 +5410,22 @@ function stringifyFlowCollection({ items }, ctx, { flowChars, itemIndent }) {
         if (comment)
             reqNewline = true;
         let str = stringify.stringify(item, itemCtx, () => (comment = null));
-        if (i < items.length - 1)
+        reqNewline || (reqNewline = lines.length > linesAtValue || str.includes('\n'));
+        if (i < items.length - 1) {
             str += ',';
+        }
+        else if (ctx.options.trailingComma) {
+            if (ctx.options.lineWidth > 0) {
+                reqNewline || (reqNewline = lines.reduce((sum, line) => sum + line.length + 2, 2) +
+                    (str.length + 2) >
+                    ctx.options.lineWidth);
+            }
+            if (reqNewline) {
+                str += ',';
+            }
+        }
         if (comment)
             str += stringifyComment.lineComment(str, itemIndent, commentString(comment));
-        if (!reqNewline && (lines.length > linesAtValue || str.includes('\n')))
-            reqNewline = true;
         lines.push(str);
         linesAtValue = lines.length;
     }
@@ -5338,8 +5463,8 @@ exports.stringifyCollection = stringifyCollection;
   }
 },
 29: {
-  filename: "/snapshot/filtalgo-cli/external/seq.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common/seq.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common",
   deps: {"../../nodes/identity.js":5,"../../nodes/YAMLSeq.js":30},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5365,8 +5490,8 @@ exports.seq = seq;
   }
 },
 30: {
-  filename: "/snapshot/filtalgo-cli/external/YAMLSeq.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes/YAMLSeq.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/nodes",
   deps: {"../doc/createNode.js":14,"../stringify/stringifyCollection.js":28,"./Collection.js":13,"./identity.js":5,"./Scalar.js":15,"./toJS.js":12},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5488,8 +5613,8 @@ exports.YAMLSeq = YAMLSeq;
   }
 },
 31: {
-  filename: "/snapshot/filtalgo-cli/external/string.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common/string.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common",
   deps: {"../../stringify/stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5512,8 +5637,8 @@ exports.string = string;
   }
 },
 32: {
-  filename: "/snapshot/filtalgo-cli/external/tags.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/tags.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema",
   deps: {"./common/map.js":26,"./common/null.js":33,"./common/seq.js":29,"./common/string.js":31,"./core/bool.js":34,"./core/float.js":35,"./core/int.js":37,"./core/schema.js":38,"./json/schema.js":39,"./yaml-1.1/binary.js":40,"./yaml-1.1/merge.js":24,"./yaml-1.1/omap.js":41,"./yaml-1.1/pairs.js":42,"./yaml-1.1/schema.js":43,"./yaml-1.1/set.js":47,"./yaml-1.1/timestamp.js":48},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5619,8 +5744,8 @@ exports.getTags = getTags;
   }
 },
 33: {
-  filename: "/snapshot/filtalgo-cli/external/null.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common/null.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/common",
   deps: {"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5644,8 +5769,8 @@ exports.nullTag = nullTag;
   }
 },
 34: {
-  filename: "/snapshot/filtalgo-cli/external/bool.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core/bool.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core",
   deps: {"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5673,8 +5798,8 @@ exports.boolTag = boolTag;
   }
 },
 35: {
-  filename: "/snapshot/filtalgo-cli/external/float.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core/float.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core",
   deps: {"../../nodes/Scalar.js":15,"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5728,8 +5853,8 @@ exports.floatNaN = floatNaN;
   }
 },
 36: {
-  filename: "/snapshot/filtalgo-cli/external/stringifyNumber.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyNumber.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5740,11 +5865,12 @@ function stringifyNumber({ format, minFractionDigits, tag, value }) {
     const num = typeof value === 'number' ? value : Number(value);
     if (!isFinite(num))
         return isNaN(num) ? '.nan' : num < 0 ? '-.inf' : '.inf';
-    let n = JSON.stringify(value);
+    let n = Object.is(value, -0) ? '-0' : JSON.stringify(value);
     if (!format &&
         minFractionDigits &&
         (!tag || tag === 'tag:yaml.org,2002:float') &&
-        /^\d/.test(n)) {
+        /^-?\d/.test(n) &&
+        !n.includes('e')) {
         let i = n.indexOf('.');
         if (i < 0) {
             i = n.length;
@@ -5762,8 +5888,8 @@ exports.stringifyNumber = stringifyNumber;
   }
 },
 37: {
-  filename: "/snapshot/filtalgo-cli/external/int.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core/int.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core",
   deps: {"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5812,8 +5938,8 @@ exports.intOct = intOct;
   }
 },
 38: {
-  filename: "/snapshot/filtalgo-cli/external/schema.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core/schema.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/core",
   deps: {"../common/map.js":26,"../common/null.js":33,"../common/seq.js":29,"../common/string.js":31,"./bool.js":34,"./float.js":35,"./int.js":37},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5845,8 +5971,8 @@ exports.schema = schema;
   }
 },
 39: {
-  filename: "/snapshot/filtalgo-cli/external/schema.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/json/schema.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/json",
   deps: {"../../nodes/Scalar.js":15,"../common/map.js":26,"../common/seq.js":29},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -5917,13 +6043,13 @@ exports.schema = schema;
   }
 },
 40: {
-  filename: "/snapshot/filtalgo-cli/external/binary.js",
-  dirname: "/snapshot/filtalgo-cli/external",
-  deps: {"node:buffer":null,"../../nodes/Scalar.js":15,"../../stringify/stringifyString.js":20},
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/binary.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
+  deps: {"buffer":null,"../../nodes/Scalar.js":15,"../../stringify/stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_buffer = require('node:buffer');
+var node_buffer = require('buffer');
 var Scalar = require('../../nodes/Scalar.js');
 var stringifyString = require('../../stringify/stringifyString.js');
 
@@ -5976,8 +6102,7 @@ const binary = {
         else {
             throw new Error('This environment does not support writing binary tags; either Buffer or btoa is required');
         }
-        if (!type)
-            type = Scalar.Scalar.BLOCK_LITERAL;
+        type ?? (type = Scalar.Scalar.BLOCK_LITERAL);
         if (type !== Scalar.Scalar.QUOTE_DOUBLE) {
             const lineWidth = Math.max(ctx.options.lineWidth - ctx.indent.length, ctx.options.minContentWidth);
             const n = Math.ceil(str.length / lineWidth);
@@ -5996,8 +6121,8 @@ exports.binary = binary;
   }
 },
 41: {
-  filename: "/snapshot/filtalgo-cli/external/omap.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/omap.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../nodes/identity.js":5,"../../nodes/toJS.js":12,"../../nodes/YAMLMap.js":27,"../../nodes/YAMLSeq.js":30,"./pairs.js":42},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6081,8 +6206,8 @@ exports.omap = omap;
   }
 },
 42: {
-  filename: "/snapshot/filtalgo-cli/external/pairs.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/pairs.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../nodes/identity.js":5,"../../nodes/Pair.js":16,"../../nodes/Scalar.js":15,"../../nodes/YAMLSeq.js":30},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6171,8 +6296,8 @@ exports.resolvePairs = resolvePairs;
   }
 },
 43: {
-  filename: "/snapshot/filtalgo-cli/external/schema.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/schema.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../common/map.js":26,"../common/null.js":33,"../common/seq.js":29,"../common/string.js":31,"./binary.js":40,"./bool.js":44,"./float.js":45,"./int.js":46,"./merge.js":24,"./omap.js":41,"./pairs.js":42,"./set.js":47,"./timestamp.js":48},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6220,8 +6345,8 @@ exports.schema = schema;
   }
 },
 44: {
-  filename: "/snapshot/filtalgo-cli/external/bool.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/bool.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6257,8 +6382,8 @@ exports.trueTag = trueTag;
   }
 },
 45: {
-  filename: "/snapshot/filtalgo-cli/external/float.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/float.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../nodes/Scalar.js":15,"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6315,8 +6440,8 @@ exports.floatNaN = floatNaN;
   }
 },
 46: {
-  filename: "/snapshot/filtalgo-cli/external/int.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/int.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6399,8 +6524,8 @@ exports.intOct = intOct;
   }
 },
 47: {
-  filename: "/snapshot/filtalgo-cli/external/set.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/set.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../nodes/identity.js":5,"../../nodes/Pair.js":16,"../../nodes/YAMLMap.js":27},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6503,8 +6628,8 @@ exports.set = set;
   }
 },
 48: {
-  filename: "/snapshot/filtalgo-cli/external/timestamp.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/schema/yaml-1.1",
   deps: {"../../stringify/stringifyNumber.js":36},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6616,8 +6741,8 @@ exports.timestamp = timestamp;
   }
 },
 49: {
-  filename: "/snapshot/filtalgo-cli/external/stringifyDocument.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify/stringifyDocument.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/stringify",
   deps: {"../nodes/identity.js":5,"./stringify.js":18,"./stringifyComment.js":19},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6711,8 +6836,8 @@ exports.stringifyDocument = stringifyDocument;
   }
 },
 50: {
-  filename: "/snapshot/filtalgo-cli/external/errors.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/errors.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6765,7 +6890,7 @@ const prettifyError = (src, lc) => (error) => {
     if (/[^ ]/.test(lineStr)) {
         let count = 1;
         const end = error.linePos[1];
-        if (end && end.line === line && end.col > col) {
+        if (end?.line === line && end.col > col) {
             count = Math.max(1, Math.min(end.col - col, 80 - ci));
         }
         const pointer = ' '.repeat(ci) + '^'.repeat(count);
@@ -6781,8 +6906,8 @@ exports.prettifyError = prettifyError;
   }
 },
 51: {
-  filename: "/snapshot/filtalgo-cli/external/compose-doc.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/compose-doc.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../doc/Document.js":7,"./compose-node.js":52,"./resolve-end.js":61,"./resolve-props.js":55},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6834,8 +6959,8 @@ exports.composeDoc = composeDoc;
   }
 },
 52: {
-  filename: "/snapshot/filtalgo-cli/external/compose-node.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/compose-node.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/Alias.js":8,"../nodes/identity.js":5,"./compose-collection.js":53,"./compose-scalar.js":62,"./resolve-end.js":61,"./util-empty-scalar-position.js":65},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -6870,19 +6995,26 @@ function composeNode(ctx, token, props, onError) {
         case 'block-map':
         case 'block-seq':
         case 'flow-collection':
-            node = composeCollection.composeCollection(CN, ctx, token, props, onError);
-            if (anchor)
-                node.anchor = anchor.source.substring(1);
+            try {
+                node = composeCollection.composeCollection(CN, ctx, token, props, onError);
+                if (anchor)
+                    node.anchor = anchor.source.substring(1);
+            }
+            catch (error) {
+                // Almost certainly here due to a stack overflow
+                const message = error instanceof Error ? error.message : String(error);
+                onError(token, 'RESOURCE_EXHAUSTION', message);
+            }
             break;
         default: {
             const message = token.type === 'error'
                 ? token.message
                 : `Unsupported token (type: ${token.type})`;
             onError(token, 'UNEXPECTED_TOKEN', message);
-            node = composeEmptyNode(ctx, token.offset, undefined, null, props, onError);
             isSrcToken = false;
         }
     }
+    node ?? (node = composeEmptyNode(ctx, token.offset, undefined, null, props, onError));
     if (anchor && node.anchor === '')
         onError(anchor, 'BAD_ALIAS', 'Anchor cannot be an empty string');
     if (atKey &&
@@ -6947,8 +7079,8 @@ exports.composeNode = composeNode;
   }
 },
 53: {
-  filename: "/snapshot/filtalgo-cli/external/compose-collection.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/compose-collection.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/identity.js":5,"../nodes/Scalar.js":15,"../nodes/YAMLMap.js":27,"../nodes/YAMLSeq.js":30,"./resolve-block-map.js":54,"./resolve-block-seq.js":59,"./resolve-flow-collection.js":60},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7014,7 +7146,7 @@ function composeCollection(CN, ctx, token, props, onError) {
     let tag = ctx.schema.tags.find(t => t.tag === tagName && t.collection === expType);
     if (!tag) {
         const kt = ctx.schema.knownTags[tagName];
-        if (kt && kt.collection === expType) {
+        if (kt?.collection === expType) {
             ctx.schema.tags.push(Object.assign({}, kt, { default: false }));
             tag = kt;
         }
@@ -7045,8 +7177,8 @@ exports.composeCollection = composeCollection;
   }
 },
 54: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-block-map.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-block-map.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/Pair.js":16,"../nodes/YAMLMap.js":27,"./resolve-props.js":55,"./util-contains-newline.js":56,"./util-flow-indent-check.js":57,"./util-map-includes.js":58},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7170,8 +7302,8 @@ exports.resolveBlockMap = resolveBlockMap;
   }
 },
 55: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-props.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-props.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7250,8 +7382,7 @@ function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIn
                 if (token.source.endsWith(':'))
                     onError(token.offset + token.source.length - 1, 'BAD_ALIAS', 'Anchor ending in : is ambiguous', true);
                 anchor = token;
-                if (start === null)
-                    start = token.offset;
+                start ?? (start = token.offset);
                 atNewline = false;
                 hasSpace = false;
                 reqSpace = true;
@@ -7260,8 +7391,7 @@ function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIn
                 if (tag)
                     onError(token, 'MULTIPLE_TAGS', 'A node can have at most one tag');
                 tag = token;
-                if (start === null)
-                    start = token.offset;
+                start ?? (start = token.offset);
                 atNewline = false;
                 hasSpace = false;
                 reqSpace = true;
@@ -7328,8 +7458,8 @@ exports.resolveProps = resolveProps;
   }
 },
 56: {
-  filename: "/snapshot/filtalgo-cli/external/util-contains-newline.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/util-contains-newline.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7372,8 +7502,8 @@ exports.containsNewline = containsNewline;
   }
 },
 57: {
-  filename: "/snapshot/filtalgo-cli/external/util-flow-indent-check.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/util-flow-indent-check.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"./util-contains-newline.js":56},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7397,8 +7527,8 @@ exports.flowIndentCheck = flowIndentCheck;
   }
 },
 58: {
-  filename: "/snapshot/filtalgo-cli/external/util-map-includes.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/util-map-includes.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/identity.js":5},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7420,8 +7550,8 @@ exports.mapIncludes = mapIncludes;
   }
 },
 59: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-block-seq.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-block-seq.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/YAMLSeq.js":30,"./resolve-props.js":55,"./util-flow-indent-check.js":57},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7450,7 +7580,7 @@ function resolveBlockSeq({ composeNode, composeEmptyNode }, ctx, bs, onError, ta
         });
         if (!props.found) {
             if (props.anchor || props.tag || value) {
-                if (value && value.type === 'block-seq')
+                if (value?.type === 'block-seq')
                     onError(props.end, 'BAD_INDENT', 'All sequence items must start at the same column');
                 else
                     onError(offset, 'MISSING_CHAR', 'Sequence item without - indicator');
@@ -7479,8 +7609,8 @@ exports.resolveBlockSeq = resolveBlockSeq;
   }
 },
 60: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-flow-collection.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-flow-collection.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/identity.js":5,"../nodes/Pair.js":16,"../nodes/YAMLMap.js":27,"../nodes/YAMLSeq.js":30,"./resolve-end.js":61,"./resolve-props.js":55,"./util-contains-newline.js":56,"./util-map-includes.js":58},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7620,7 +7750,7 @@ function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onErr
                 }
             }
             else if (value) {
-                if ('source' in value && value.source && value.source[0] === ':')
+                if ('source' in value && value.source?.[0] === ':')
                     onError(value, 'MISSING_CHAR', `Missing space after : in ${fcName}`);
                 else
                     onError(valueProps.start, 'MISSING_CHAR', `Missing , or : between ${fcName} items`);
@@ -7664,7 +7794,7 @@ function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onErr
     const expectedEnd = isMap ? '}' : ']';
     const [ce, ...ee] = fc.end;
     let cePos = offset;
-    if (ce && ce.source === expectedEnd)
+    if (ce?.source === expectedEnd)
         cePos = ce.offset + ce.source.length;
     else {
         const name = fcName[0].toUpperCase() + fcName.substring(1);
@@ -7696,8 +7826,8 @@ exports.resolveFlowCollection = resolveFlowCollection;
   }
 },
 61: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-end.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-end.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7743,8 +7873,8 @@ exports.resolveEnd = resolveEnd;
   }
 },
 62: {
-  filename: "/snapshot/filtalgo-cli/external/compose-scalar.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/compose-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/identity.js":5,"../nodes/Scalar.js":15,"./resolve-block-scalar.js":63,"./resolve-flow-scalar.js":64},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -7839,8 +7969,8 @@ exports.composeScalar = composeScalar;
   }
 },
 63: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-block-scalar.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-block-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/Scalar.js":15},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8047,8 +8177,8 @@ exports.resolveBlockScalar = resolveBlockScalar;
   }
 },
 64: {
-  filename: "/snapshot/filtalgo-cli/external/resolve-flow-scalar.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/resolve-flow-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {"../nodes/Scalar.js":15,"./resolve-end.js":61},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8197,7 +8327,7 @@ function doubleQuotedValue(source, onError) {
                     next = source[++i + 1];
             }
             else if (next === 'x' || next === 'u' || next === 'U') {
-                const length = { x: 2, u: 4, U: 8 }[next];
+                const length = next === 'x' ? 2 : next === 'u' ? 4 : 8;
                 res += parseCharCode(source, i + 1, length, onError);
                 i += length;
             }
@@ -8267,12 +8397,14 @@ function parseCharCode(source, offset, length, onError) {
     const cc = source.substr(offset, length);
     const ok = cc.length === length && /^[0-9a-fA-F]+$/.test(cc);
     const code = ok ? parseInt(cc, 16) : NaN;
-    if (isNaN(code)) {
+    try {
+        return String.fromCodePoint(code);
+    }
+    catch {
         const raw = source.substr(offset - 2, length + 2);
         onError(offset - 2, 'BAD_DQ_ESCAPE', `Invalid escape sequence ${raw}`);
         return raw;
     }
-    return String.fromCodePoint(code);
 }
 
 exports.resolveFlowScalar = resolveFlowScalar;
@@ -8280,16 +8412,15 @@ exports.resolveFlowScalar = resolveFlowScalar;
   }
 },
 65: {
-  filename: "/snapshot/filtalgo-cli/external/util-empty-scalar-position.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose/util-empty-scalar-position.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/compose",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
 function emptyScalarPosition(offset, before, pos) {
     if (before) {
-        if (pos === null)
-            pos = before.length;
+        pos ?? (pos = before.length);
         for (let i = pos - 1; i >= 0; --i) {
             let st = before[i];
             switch (st.type) {
@@ -8317,8 +8448,8 @@ exports.emptyScalarPosition = emptyScalarPosition;
   }
 },
 66: {
-  filename: "/snapshot/filtalgo-cli/external/cst.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/cst.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
   deps: {"./cst-scalar.js":67,"./cst-stringify.js":68,"./cst-visit.js":69},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8437,8 +8568,8 @@ exports.tokenType = tokenType;
   }
 },
 67: {
-  filename: "/snapshot/filtalgo-cli/external/cst-scalar.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/cst-scalar.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
   deps: {"../compose/resolve-block-scalar.js":63,"../compose/resolve-flow-scalar.js":64,"../errors.js":50,"../stringify/stringifyString.js":20},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8663,8 +8794,8 @@ exports.setScalarValue = setScalarValue;
   }
 },
 68: {
-  filename: "/snapshot/filtalgo-cli/external/cst-stringify.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/cst-stringify.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8734,8 +8865,8 @@ exports.stringify = stringify;
   }
 },
 69: {
-  filename: "/snapshot/filtalgo-cli/external/cst-visit.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/cst-visit.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -8841,8 +8972,8 @@ exports.visit = visit;
   }
 },
 70: {
-  filename: "/snapshot/filtalgo-cli/external/lexer.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/lexer.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
   deps: {"./cst.js":66},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -9568,8 +9699,8 @@ exports.Lexer = Lexer;
   }
 },
 71: {
-  filename: "/snapshot/filtalgo-cli/external/line-counter.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/line-counter.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
   deps: {},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
@@ -9617,13 +9748,13 @@ exports.LineCounter = LineCounter;
   }
 },
 72: {
-  filename: "/snapshot/filtalgo-cli/external/parser.js",
-  dirname: "/snapshot/filtalgo-cli/external",
-  deps: {"node:process":null,"./cst.js":66,"./lexer.js":70},
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse/parser.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist/parse",
+  deps: {"process":null,"./cst.js":66,"./lexer.js":70},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';
 
-var node_process = require('node:process');
+var node_process = require('process');
 var cst = require('./cst.js');
 var lexer = require('./lexer.js');
 
@@ -9854,7 +9985,7 @@ class Parser {
     }
     *step() {
         const top = this.peek(1);
-        if (this.type === 'doc-end' && (!top || top.type !== 'doc-end')) {
+        if (this.type === 'doc-end' && top?.type !== 'doc-end') {
             while (this.stack.length > 0)
                 yield* this.pop();
             this.stack.push({
@@ -10386,7 +10517,7 @@ class Parser {
             do {
                 yield* this.pop();
                 top = this.peek(1);
-            } while (top && top.type === 'flow-collection');
+            } while (top?.type === 'flow-collection');
         }
         else if (fc.end.length === 0) {
             switch (this.type) {
@@ -10597,8 +10728,8 @@ exports.Parser = Parser;
   }
 },
 73: {
-  filename: "/snapshot/filtalgo-cli/external/public-api.js",
-  dirname: "/snapshot/filtalgo-cli/external",
+  filename: "/snapshot/filtalgo-cli/node_modules/yaml/dist/public-api.js",
+  dirname: "/snapshot/filtalgo-cli/node_modules/yaml/dist",
   deps: {"./compose/composer.js":3,"./doc/Document.js":7,"./errors.js":50,"./log.js":23,"./nodes/identity.js":5,"./parse/line-counter.js":71,"./parse/parser.js":72},
   factory: function(require, module, exports, __filename, __dirname) {
 'use strict';

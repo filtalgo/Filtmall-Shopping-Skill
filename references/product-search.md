@@ -95,6 +95,7 @@ node scripts/filtalgo.js search "想要保湿一点的面膜，但别太黏" --j
 - 商品详情链接使用 `response.items[].detail_url`，不要重新拼。
 - 商品图片只使用同一个 `response.items[]` 对象中的 `image`，不要从 `result.cards[]`、其他商品或历史回复中复制图片 URL。图片、名称、规格、价格和详情链接必须始终来自同一个数组元素；禁止按索引错位、跨商品复用图片或根据相似标题猜测图片。
 - 商品参数优先读取 `response.items[].attributes`；这里来自 hydrate 的真实 `spu_attributes`，可用于核验净含量、片数、功效、适用人群等。参数中已经明确给出信息时，不得因为标题或 `recommended_spec` 较短而回复“暂未注明”。
+- 价格优势只读取 `response.items[].price_advantage`，这是商城同源接口已经计算和筛选后的结果，不得自行搜索外部价格、重新计算价差或补写证据。`status=available` 时逐条使用 `samples[]` 中的平台、对比价、`advantage_amount`、`advantage_rate`、`collected_at` 和 `source_url`；`status=unavailable` 时原样显示“暂无可核验的比价依据”，不得把缺失状态包装成价格优势。
 - 不要把 `skus[]` 的每个 SKU 当成独立商品重复展示；`skus[]` 只用于提取“推荐规格”和“其他规格”。
 - 加购必须使用具体 `sku_id`，不能只传 SPU id。
 
