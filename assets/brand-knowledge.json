@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "snapshotAt": "2026-08-28T20:55:36.462+08:00",
+  "sourceEndpoint": "https://service.filtalgo.com/goods/brand-knowledge/{brandId}",
+  "brands": [
+    {
+      "brandId": "2061742464801054721",
+      "brandName": "片仔癀",
+      "brandLogo": "https://filtering-tech-product-data.oss-cn-beijing.aliyuncs.com/STORE/2059895102542540800/ba6f19302afa4571851f7ada71934621.jpg",
+      "asOf": "2026-08-28T20:55:14.930+08:00",
+      "knowledgeAvailable": true,
+      "items": [
+        {
+          "itemId": "2093159724797194240",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.positioning",
+          "content": "片仔癀以扎根中医药传统文化沃土推动老字号成就'大国品牌'",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T10:22:26.195499",
+          "sourceName": "fj.people.com.cn",
+          "sourceUrl": "http://fj.people.com.cn/BIG5/n2/2024/1231/c181466-41093712.html",
+          "collectedAt": "2026-08-28T10:12:00.594",
+          "lastVerifiedAt": "2026-08-28T10:12:22.051934",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093159724809777152",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.primary_categories",
+          "content": "药品、化妆品、保健品",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T10:22:35.375311",
+          "sourceName": "fj.people.com.cn",
+          "sourceUrl": "http://fj.people.com.cn/BIG5/n2/2024/1231/c181466-41093712.html",
+          "collectedAt": "2026-08-28T10:12:00.594",
+          "lastVerifiedAt": "2026-08-28T10:12:22.051934",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093159724818165760",
+          "category": "PROFESSIONAL_EVIDENCE",
+          "fieldCode": "evidence.research",
+          "content": "与澳门大学、暨南大学、厦门大学、中国中医科学院医学实验中心等多所高校和研究机构共建研发平台",
+          "valueJson": "{\"scope\": \"与高校和研究机构共建研发平台\", \"subject\": \"片仔癀\", \"evidenceType\": \"research\"}",
+          "brandStatement": false,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T10:22:41.008293",
+          "sourceName": "fj.people.com.cn",
+          "sourceUrl": "http://fj.people.com.cn/BIG5/n2/2024/1231/c181466-41093712.html",
+          "collectedAt": "2026-08-28T10:12:00.594",
+          "lastVerifiedAt": "2026-08-28T10:12:22.051934",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093159724830748672",
+          "category": "PROFESSIONAL_EVIDENCE",
+          "fieldCode": "evidence.patent",
+          "content": "截至2024年9月，片仔癀作为专利权人拥有有效发明专利137件、有效实用新型专利37件",
+          "valueJson": "{\"scope\": \"有效发明专利137件、有效实用新型专利37件\", \"subject\": \"片仔癀\", \"issuedAt\": \"2024-09\", \"evidenceType\": \"patent\"}",
+          "brandStatement": false,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T10:22:43.415961",
+          "sourceName": "fj.people.com.cn",
+          "sourceUrl": "http://fj.people.com.cn/BIG5/n2/2024/1231/c181466-41093712.html",
+          "collectedAt": "2026-08-28T10:12:00.594",
+          "lastVerifiedAt": "2026-08-28T10:12:22.051934",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093159724839137280",
+          "category": "PROFESSIONAL_EVIDENCE",
+          "fieldCode": "evidence.award",
+          "content": "入选'人民匠心品牌'",
+          "valueJson": "{\"scope\": \"人民匠心品牌\", \"issuer\": \"人民网\", \"subject\": \"片仔癀\", \"issuedAt\": \"2024\", \"evidenceType\": \"award\"}",
+          "brandStatement": false,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T10:21:47.83198",
+          "sourceName": "fj.people.com.cn",
+          "sourceUrl": "http://fj.people.com.cn/BIG5/n2/2024/1231/c181466-41093712.html",
+          "collectedAt": "2026-08-28T10:12:00.594",
+          "lastVerifiedAt": "2026-08-28T10:12:22.051934",
+          "evidenceVersion": 1
+        }
+      ],
+      "summary": {
+        "versionId": "2093162340092538880",
+        "versionNo": 1,
+        "body": "片仔癀以扎根中医药传统文化沃土推动老字号成就'大国品牌'。片仔癀的主要品类包括药品、化妆品、保健品。片仔癀与澳门大学、暨南大学、厦门大学、中国中医科学院医学实验中心等多所高校和研究机构共建研发平台。截至2024年9月，片仔癀作为专利权人拥有有效发明专利137件、有效实用新型专利37件。片仔癀入选'人民匠心品牌'。",
+        "activeAt": "2026-08-28T10:22:59.590591",
+        "citations": [
+          {
+            "sentenceIndex": 0,
+            "sentenceText": "片仔癀以扎根中医药传统文化沃土推动老字号成就'大国品牌'。",
+            "itemId": "2093159724797194240",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 1,
+            "sentenceText": "片仔癀的主要品类包括药品、化妆品、保健品。",
+            "itemId": "2093159724809777152",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 2,
+            "sentenceText": "片仔癀与澳门大学、暨南大学、厦门大学、中国中医科学院医学实验中心等多所高校和研究机构共建研发平台。",
+            "itemId": "2093159724818165760",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 3,
+            "sentenceText": "截至2024年9月，片仔癀作为专利权人拥有有效发明专利137件、有效实用新型专利37件。",
+            "itemId": "2093159724830748672",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 4,
+            "sentenceText": "片仔癀入选'人民匠心品牌'。",
+            "itemId": "2093159724839137280",
+            "evidenceVersion": 1
+          }
+        ]
+      }
+    },
+    {
+      "brandId": "2064266235059609601",
+      "brandName": "SHANGYANG",
+      "brandLogo": "https://filtering-tech-product-data.oss-cn-beijing.aliyuncs.com/STORE/2064165257229631488/4500426207de43d48f6b7871a90fd8ec.jpg",
+      "asOf": "2026-08-28T20:55:15.293+08:00",
+      "knowledgeAvailable": true,
+      "items": [
+        {
+          "itemId": "2093203669690413056",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.philosophy",
+          "content": "公司宗旨：百年尚洋、民族品牌、富强祖国、回馈社会。公司的使命：人类对美丽生活的向往，就是我们奋斗的目标。公司管理理念：以人为本、追求卓越、以效为先，友爱团结。公司经营理念：产品即人品，品质即灵魂，人人都是经营者，个个都是负责人。公司核心价值观：诚信，精进，和合，创新，高效，卓越。公司团队精神：同心协力，做大做强，中山尚洋一起飞翔。",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:10:00.917285",
+          "sourceName": "尚洋企业文化",
+          "sourceUrl": "https://shangyangkeji.com/page.html?id=7",
+          "collectedAt": "2026-08-28T13:06:38.726",
+          "lastVerifiedAt": "2026-08-28T13:06:59.329842",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093203669702995968",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.positioning",
+          "content": "时尚 · 个性 · 创新",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:10:04.736076",
+          "sourceName": "尚洋企业简介",
+          "sourceUrl": "https://shangyangkeji.com/page.html?id=2",
+          "collectedAt": "2026-08-28T13:06:39.246",
+          "lastVerifiedAt": "2026-08-28T13:06:59.331671",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093203669715578880",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.primary_categories",
+          "content": "化妆刷、化妆工具",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:10:10.764076",
+          "sourceName": "尚洋企业简介",
+          "sourceUrl": "https://shangyangkeji.com/page.html?id=2",
+          "collectedAt": "2026-08-28T13:06:39.246",
+          "lastVerifiedAt": "2026-08-28T13:06:59.331671",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093203669723967488",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.philosophy",
+          "content": "以制造推动中国创造，以专注成就世界品牌",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:10:14.689461",
+          "sourceName": "尚洋企业简介",
+          "sourceUrl": "https://shangyangkeji.com/page.html?id=2",
+          "collectedAt": "2026-08-28T13:06:39.246",
+          "lastVerifiedAt": "2026-08-28T13:06:59.331671",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093203669732356096",
+          "category": "PROFESSIONAL_EVIDENCE",
+          "fieldCode": "evidence.certification",
+          "content": "广东省地方标准（DB44)-化妆刷的行业标准制订者",
+          "valueJson": "{\"scope\": \"化妆刷行业标准制订\", \"issuer\": \"广东省\", \"subject\": \"中山尚洋科技股份有限公司\", \"evidenceType\": \"certification\", \"certificateNo\": \"DB44\"}",
+          "brandStatement": false,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:10:18.627915",
+          "sourceName": "尚洋企业简介",
+          "sourceUrl": "https://shangyangkeji.com/page.html?id=2",
+          "collectedAt": "2026-08-28T13:06:39.246",
+          "lastVerifiedAt": "2026-08-28T13:06:59.331671",
+          "evidenceVersion": 1
+        }
+      ],
+      "summary": {
+        "versionId": "2093204513714401280",
+        "versionNo": 1,
+        "body": "SHANGYANG（尚洋科技）品牌定位为“时尚 · 个性 · 创新”，主要品类为化妆刷和化妆工具。公司宗旨为“百年尚洋、民族品牌、富强祖国、回馈社会”，使命是“人类对美丽生活的向往，就是我们奋斗的目标”。公司理念包括“产品即人品，品质即灵魂”等。此外，SHANGYANG是广东省地方标准（DB44）化妆刷行业标准的制订者。",
+        "activeAt": "2026-08-28T13:11:11.725659",
+        "citations": [
+          {
+            "sentenceIndex": 0,
+            "sentenceText": "SHANGYANG品牌定位为“时尚 · 个性 · 创新”，主要品类为化妆刷和化妆工具。",
+            "itemId": "2093203669702995968",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 0,
+            "sentenceText": "SHANGYANG品牌定位为“时尚 · 个性 · 创新”，主要品类为化妆刷和化妆工具。",
+            "itemId": "2093203669715578880",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 1,
+            "sentenceText": "公司宗旨为“百年尚洋、民族品牌、富强祖国、回馈社会”，使命是“人类对美丽生活的向往，就是我们奋斗的目标”。",
+            "itemId": "2093203669690413056",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 2,
+            "sentenceText": "公司理念包括“产品即人品，品质即灵魂”等。",
+            "itemId": "2093203669690413056",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 3,
+            "sentenceText": "此外，SHANGYANG是广东省地方标准（DB44）化妆刷行业标准的制订者。",
+            "itemId": "2093203669732356096",
+            "evidenceVersion": 1
+          }
+        ]
+      }
+    },
+    {
+      "brandId": "2091720476766470146",
+      "brandName": "理皙",
+      "brandLogo": "https://filtering-tech-product-data.oss-cn-beijing.aliyuncs.com/STORE/2062013707287621632/1da41f8f1f78438ea23253e57e2ec2f5.png",
+      "asOf": "2026-08-28T20:55:36.462+08:00",
+      "knowledgeAvailable": true,
+      "items": [
+        {
+          "itemId": "2093213274264891392",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.positioning",
+          "content": "理皙——锚定护肤「最优解」，帮助肌肤快速抵达高光时刻。为你过滤噪音，只留答案。让护肤，回归高效与简单!",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:45:35.775844",
+          "sourceName": "理皙小红书账号",
+          "sourceUrl": "https://www.xiaohongshu.com/user/profile/6881d483000000001d024673?xsec_token=YBs65yg66N2iY_qITlJA53lHJv53Bq2O9OFseWIOUwHBQ=&xsec_source=app_share&xhsshare=WeixinSession&appuid=6883481a000000001e020e46&apptime=1787894242&share_id=54b4edc0638943ebb7ea7f7c67796b29&wechatWid=82c30bf1f383c63c9528f41e5c879758&wechatOrigin=menu",
+          "collectedAt": "2026-08-28T13:44:45.397",
+          "lastVerifiedAt": "2026-08-28T13:45:09.243083",
+          "evidenceVersion": 1
+        },
+        {
+          "itemId": "2093213274281668608",
+          "category": "BRAND_EXPRESSION",
+          "fieldCode": "brand.primary_categories",
+          "content": "面膜（包括PDRN绷带面膜、救急面膜等）",
+          "valueJson": "{}",
+          "brandStatement": true,
+          "applicability": "品牌级",
+          "reviewDecision": "APPROVED",
+          "reviewedAt": "2026-08-28T13:45:39.398962",
+          "sourceName": "理皙小红书账号",
+          "sourceUrl": "https://www.xiaohongshu.com/user/profile/6881d483000000001d024673?xsec_token=YBs65yg66N2iY_qITlJA53lHJv53Bq2O9OFseWIOUwHBQ=&xsec_source=app_share&xhsshare=WeixinSession&appuid=6883481a000000001e020e46&apptime=1787894242&share_id=54b4edc0638943ebb7ea7f7c67796b29&wechatWid=82c30bf1f383c63c9528f41e5c879758&wechatOrigin=menu",
+          "collectedAt": "2026-08-28T13:44:45.397",
+          "lastVerifiedAt": "2026-08-28T13:45:09.243083",
+          "evidenceVersion": 1
+        }
+      ],
+      "summary": {
+        "versionId": "2093213408306458624",
+        "versionNo": 1,
+        "body": "理皙锚定护肤「最优解」，帮助肌肤快速抵达高光时刻，过滤噪音，只留答案，让护肤回归高效与简单。其主要品类包括面膜，如PDRN绷带面膜、救急面膜等。",
+        "activeAt": "2026-08-28T13:46:03.879156",
+        "citations": [
+          {
+            "sentenceIndex": 0,
+            "sentenceText": "理皙锚定护肤「最优解」，帮助肌肤快速抵达高光时刻，过滤噪音，只留答案，让护肤回归高效与简单。",
+            "itemId": "2093213274264891392",
+            "evidenceVersion": 1
+          },
+          {
+            "sentenceIndex": 1,
+            "sentenceText": "其主要品类包括面膜，如PDRN绷带面膜、救急面膜等。",
+            "itemId": "2093213274281668608",
+            "evidenceVersion": 1
+          }
+        ]
+      }
+    }
+  ]
+}

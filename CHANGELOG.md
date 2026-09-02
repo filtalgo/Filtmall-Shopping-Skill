@@ -2,6 +2,16 @@
 
 All notable changes to Filtmall Shopping Skill are recorded here. Published versions are also available in [GitHub Releases](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases).
 
+## [1.10.0] - 2026-09-02
+
+### Changed
+
+- Added a two-stage recommendation flow that separates semantic selection from source validation, product binding, ranking, and final Markdown rendering.
+- Strengthened product identity across multi-turn shopping so names, images, prices, specifications, detail links, and candidate numbers remain bound to the same product.
+- Added dedicated follow-up guidance for product details, comparisons, and research from Filtmall product links.
+- Added reviewed local brand knowledge and evidence-bounded brand summaries, with omission when no approved brand information is available.
+- Expanded transaction and after-sales guidance while preserving the existing confirmation and safety boundaries.
+
 ## [1.6.6] - 2026-08-18
 
 ### Changed
@@ -33,6 +43,7 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 - Moved version-specific updates out of the README and into the changelog and GitHub Release notes.
 - Kept buyer-link channel details in the Skill's technical instructions and developer command examples.
 
+[1.10.0]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.10.0
 [1.6.6]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.6
 [1.6.5]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.5
 [1.6.4]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.4
