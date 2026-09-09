@@ -4,6 +4,7 @@
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
 [![Version](https://img.shields.io/badge/version-1.10.0-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
+[![License](https://img.shields.io/badge/license-mixed-blue.svg)](LICENSES.md)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -122,12 +123,25 @@ SKILL.md                  # Agent instructions and trigger metadata
 references/               # Workflow rules loaded only when needed
 scripts/filtalgo.js       # Thin CLI wrapper
 assets/filtalgo-cli.cjs   # Bundled CLI runtime
+assets/LICENSE            # Proprietary runtime license
 agents/openai.yaml        # Skill display metadata
 skills.sh.json            # skills.sh presentation metadata
 CHANGELOG.md              # Version history
 README.md                 # English documentation
 README.zh-CN.md           # Chinese documentation
+LICENSE                    # Apache License 2.0
+LICENSES.md                # License scope and exceptions
+NOTICE                     # Copyright and trademark attribution
+THIRD_PARTY_NOTICES        # Notices for bundled third-party software
 ```
+
+## License
+
+This repository uses [mixed licensing](LICENSES.md). The Skill instructions, workflow references, wrapper scripts, repository metadata, and documentation for which Filtering Algorithm (Beijing) Technology Co., Ltd. owns the applicable rights are licensed under the [Apache License 2.0](LICENSE).
+
+The bundled runtime [`assets/filtalgo-cli.cjs`](assets/filtalgo-cli.cjs) is proprietary, is not licensed under Apache-2.0, and does not include its source code. Its separate license permits use and exact, unmodified redistribution as a component of an original or modified copy of Filtmall Shopping Skill; see [`assets/LICENSE`](assets/LICENSE). Bundled third-party software remains under the licenses in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+
+These licenses apply only to materials distributed in this repository. They do not grant rights to Filtmall's hosted services, APIs, accounts, live product or transaction data, or other server-side systems. Access to those services is governed separately by the applicable service terms. Filtmall, Filtalgo, 筛电, and their associated logos are not licensed for use except as permitted by applicable trademark law and Section 6 of the Apache License 2.0. See [NOTICE](NOTICE) for attribution details.
 
 ## About Filtmall
 

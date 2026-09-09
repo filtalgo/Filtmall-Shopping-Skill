@@ -2,6 +2,12 @@
 
 All notable changes to Filtmall Shopping Skill are recorded here. Published versions are also available in [GitHub Releases](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases).
 
+## [Unreleased]
+
+### Changed
+
+- Added explicit mixed-license documentation: Apache-2.0 for the open-source Skill materials, a limited proprietary license for the bundled CLI runtime, and notices for bundled third-party software.
+
 ## [1.10.0] - 2026-09-02
 
 ### Changed

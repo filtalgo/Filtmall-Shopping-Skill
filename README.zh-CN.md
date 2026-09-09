@@ -4,6 +4,7 @@
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
 [![版本](https://img.shields.io/badge/version-1.10.0-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
+[![许可证](https://img.shields.io/badge/license-mixed-blue.svg)](LICENSES.md)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
@@ -122,12 +123,25 @@ SKILL.md                  # 智能体指令与触发元数据
 references/               # 按需加载的流程规则
 scripts/filtalgo.js       # CLI 包装入口
 assets/filtalgo-cli.cjs   # 打包后的 CLI 运行文件
+assets/LICENSE            # 专有运行文件许可证
 agents/openai.yaml        # Skill 展示元数据
 skills.sh.json            # skills.sh 展示元数据
 CHANGELOG.md              # 版本变更记录
 README.md                 # 英文说明
 README.zh-CN.md           # 中文说明
+LICENSE                    # Apache License 2.0
+LICENSES.md                # 许可范围与例外
+NOTICE                     # 著作权与商标署名声明
+THIRD_PARTY_NOTICES        # 打包所含第三方软件声明
 ```
+
+## 开源许可证
+
+本仓库采用[混合许可](LICENSES.md)。其中，筛选算法（北京）科技有限公司拥有相应权利的 Skill 指令、流程参考、包装脚本、仓库元数据和文档采用 [Apache License 2.0](LICENSE) 开源。
+
+打包运行文件 [`assets/filtalgo-cli.cjs`](assets/filtalgo-cli.cjs) 为专有组件，不适用 Apache-2.0，且本仓库不提供其源码。该文件的单独许可证允许将其作为原始或修改后的 Filtmall Shopping Skill 的组成部分使用，以及随该 Skill 原样、未经修改地复制和再分发；详见 [`assets/LICENSE`](assets/LICENSE)。其中包含的第三方软件继续适用 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) 中列明的许可证。
+
+这些许可证仅适用于本仓库中发布的材料，不授权使用筛电托管服务、API、账户、实时商品或交易数据及其他服务端系统；访问这些服务须另行遵守相应的服务条款。Filtmall、Filtalgo、筛电及相关标识的使用不在开源授权范围内，但适用商标法及 Apache License 2.0 第 6 条允许的情形除外。署名信息见 [NOTICE](NOTICE)。
 
 ## 关于筛电
 
