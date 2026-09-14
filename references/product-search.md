@@ -38,6 +38,7 @@ FILTMALL_PROFILE
 ```
 
 - `texture_preference` 只写清爽、滋润、黏腻、轻薄等真实肤感。预算上限不等于价格优先；只有用户明确说“预算优先/价格优先/低价优先”时才写 `selection_priority: "价格优先"`。不使用含义混淆的 `preference`。
+- 脚本依据 `request_profile` 和实时 adapter context 把类目、硬预算、品牌与可识别功效转成结构化过滤，把肤质、人群和肤感转成排序偏好；已结构化的条件不再重复发送到 `retrieval_query`。完整用户原话仍保留在搜索结果与推荐上下文中。
 - 不先缩成品类词，不执行 `search-spu`、`search-tools`、`config reset`，不为补字段或排版重跑搜索。
 - 脚本路径逐字使用宿主返回的绝对 Base directory；不得把 `${CODEBUDDY_SKILL_DIR}` 当作 Shell 变量。
 - 不追加管道、`head`、`tail`、Python、PowerShell，不写临时文件。
