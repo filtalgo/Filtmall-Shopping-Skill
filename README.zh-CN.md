@@ -1,4 +1,4 @@
-# Filtmall Shopping | 筛电购物
+# Filtmall Shopping
 
 [English README](README.md) · [筛电官网](https://www.filtalgo.com/)
 
