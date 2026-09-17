@@ -2,7 +2,7 @@
 
 处理购物车、立即购买、地址、结算或支付任务前，必须完整阅读并遵守本文件。
 
-账号命令返回未登录或会话失效时，最多执行一次 `auth login --json`。返回验证链接就交给用户；没有验证链接或登录失败时，只回复“当前暂时无法完成筛电账号验证，请稍后重试。”并结束。不得重试，不得调用 help、doctor、config、`auth status` 或读取脚本排查。
+账号命令返回未登录或会话失效时，按 `SKILL.md` 的非阻塞授权规则执行 `auth start --json` 或继续已有 pending 授权。不得重试启动，不得调用 help、doctor、config、`auth status` 或读取脚本排查。
 
 ## 目录
 
@@ -26,7 +26,7 @@ node scripts/filtalgo.js cart get --way CART --json
 加入购物车或覆盖数量：
 
 ```bash
-node scripts/filtalgo.js cart add-item --way CART --sku-id <sku_id> --quantity <num> --cover true --json
+node scripts/filtalgo.js cart add-item --way CART --sku-id <sku_id> --quantity <num> --cover true --confirm --json
 ```
 
 `--cover true` 表示把该 SKU 的购物车数量覆盖为指定数量。比如购物车有 A/B/C，B 当前 1 件，用户说“把 B 改成 3 件”，就对 B 调用 `--quantity 3 --cover true`。
@@ -34,7 +34,7 @@ node scripts/filtalgo.js cart add-item --way CART --sku-id <sku_id> --quantity <
 只有在智能体已经向用户展示具体 SKU 对应的商品与规格、数量、收货地址和应付金额，且用户在这之后明确确认直接购买时，才执行：
 
 ```bash
-node scripts/filtalgo.js buy-now <sku_id> --quantity <num> --json
+node scripts/filtalgo.js buy-now <sku_id> --quantity <num> --confirm --json
 ```
 
 `buy-now` 会清理 `BUY_NOW` 临时态、写入当前单个 SKU，再通过 adapter 原生 `shopping.checkout.create_from_cart` 创建 `BUY_NOW` checkout。它不会清空或修改用户的 `CART` 持久购物车，也不会自动支付。
@@ -97,6 +97,8 @@ node scripts/filtalgo.js address delete <address_id> --confirm --json
 你可以告诉我使用哪一个地址。
 
 如需新增或修改地址，可以打开：[管理收货地址]({address_management_url})
+
+页面信息以打开后的实时展示为准。
 ```
 
 ## 结算与支付
@@ -106,9 +108,9 @@ node scripts/filtalgo.js address delete <address_id> --confirm --json
 ```bash
 node scripts/filtalgo.js cart get --json
 node scripts/filtalgo.js address list --json
-node scripts/filtalgo.js checkout create --way CART --json
-node scripts/filtalgo.js checkout select-address --way CART --shipping-address-id <address_id> --json
-node scripts/filtalgo.js checkout prepare-payment <checkout_session_id> --handler wallet --link-channel mobile_h5 --json
+node scripts/filtalgo.js checkout create --way CART --confirm --json
+node scripts/filtalgo.js checkout select-address --way CART --shipping-address-id <address_id> --confirm --json
+node scripts/filtalgo.js checkout prepare-payment <checkout_session_id> --handler wallet --link-channel mobile_h5 --confirm --json --agent-response
 ```
 
 `checkout create` 默认调用 adapter 原生 `shopping.checkout.create_from_cart`，由服务端读取已选购物车并建立结算会话。不要再在 Agent 侧手工拼装商品金额或 checkout payload。
@@ -125,16 +127,18 @@ node scripts/filtalgo.js address list --json
 用户看到摘要并明确确认后，才一次性执行立即购买结算流程：
 
 ```bash
-node scripts/filtalgo.js buy-now <sku_id> --quantity <num> --json
-node scripts/filtalgo.js checkout select-address --way BUY_NOW --shipping-address-id <address_id> --json
-node scripts/filtalgo.js checkout prepare-payment <checkout_session_id> --handler wallet --link-channel mobile_h5 --json
+node scripts/filtalgo.js buy-now <sku_id> --quantity <num> --confirm --json
+node scripts/filtalgo.js checkout select-address --way BUY_NOW --shipping-address-id <address_id> --confirm --json
+node scripts/filtalgo.js checkout prepare-payment <checkout_session_id> --handler wallet --link-channel mobile_h5 --confirm --json --agent-response
 ```
 
 从购物车结算时，结算前先展示购物车和地址；立即购买时，结算前先展示具体商品、规格、数量、地址和应付金额。支付入口生成后只给支付链接，不代替用户输入支付密码，除非用户在当前任务里明确授权且策略允许。
 
 给出支付链接后，保留该次结算的 `checkout_session_id` 和已知的 `order_sn` 作为待核验上下文。不要要求用户回复“已支付”，也不要在没有新消息时持续轮询。用户下一次发送任何消息时，先自主查询订单状态：已知订单号时使用 `order get`，否则使用 `order list` 定位最近订单；展示最新状态后，再继续处理用户本次消息。
 
-面向用户的支付回复必须以支付链接作为最后一项内容。输出支付链接后立即结束回复，不得再附加任何文字、问题或行动要求，包括但不限于“请回复已支付”“支付完成后告诉我”“完成后回来确认”“需要我帮你查询订单吗”等相同含义的表达。不要要求或暗示用户为了继续流程而发送特定消息。下一次消息自动查询订单状态属于智能体内部流程规则，不要在支付链接后向用户说明。
+面向用户的支付回复必须以支付链接作为最后一个可操作项，并在链接后另起一段追加固定正文“页面信息以打开后的实时展示为准。”，防止客户端遗漏末尾链接。固定尾注之后立即结束回复，不得再附加其他文字、问题或行动要求，包括但不限于“请回复已支付”“支付完成后告诉我”“完成后回来确认”“需要我帮你查询订单吗”等相同含义的表达。不要要求或暗示用户为了继续流程而发送特定消息。下一次消息自动查询订单状态属于智能体内部流程规则，不要在支付链接后向用户说明。
+
+`checkout prepare-payment` 成功后，必须把返回的 `response.markdown` 从第一个 `#` 开始逐字作为唯一回复；不得再由模型拼装订单摘要、支付链接或尾注。
 
 支付回复模板：
 
@@ -146,4 +150,6 @@ node scripts/filtalgo.js checkout prepare-payment <checkout_session_id> --handle
 - 支付方式：平台收银台
 
 [去支付]({payment_url})
+
+页面信息以打开后的实时展示为准。
 ```

@@ -2,7 +2,7 @@
 
 处理订单查询、支付后状态回查、物流或取消订单任务前，必须用 `Read` 完整阅读并遵守本文件。任何 `auth status`、`order` 或 `logistics` Bash 命令都必须发生在本次 `Read` 之后，不能因为只是查询最近一单或状态简单而跳过。
 
-账号命令返回未登录或会话失效时，最多执行一次 `auth login --json`。返回验证链接就交给用户；没有验证链接或登录失败时，只回复“当前暂时无法完成筛电账号验证，请稍后重试。”并结束。不得重试，不得调用 help、doctor、config、`auth status` 或读取脚本排查。
+账号命令返回未登录或会话失效时，按 `SKILL.md` 的非阻塞授权规则执行 `auth start --json` 或继续已有 pending 授权。不得重试启动，不得调用 help、doctor、config、`auth status` 或读取脚本排查。
 
 默认隐藏完整订单号、交易号、运单号和物流轨迹中的电话号码。编号只保留前后少量字符，例如 `O20260729…4305`；手机号写成 `188****3085`。只有用户明确要求复制完整编号时才展示。
 
@@ -10,7 +10,7 @@
 
 “我付完了吗？”“支付成功了吗？”“钱扣了吗？”等短句必须按最近订单支付状态查询处理，不能因为缺少平台名或对话上下文而退出购物流程：
 
-1. 先执行 `order list --page-size 5 --json`。
+1. 先执行 `order list --page-size 5 --json --agent-response`。
 2. 优先定位最近的待支付、已支付、待发货或其他能回答付款结果的相关订单；必要时再执行 `order get`。
 3. 能唯一定位时明确回答“已支付”“待支付”或订单返回的真实状态。不能唯一定位时展示脱敏候选并只问一个澄清问题。
 4. 未完成真实查询前不得回复“没有访问支付记录的权限”，也不得让用户改查银行、支付平台、短信或订单页面。
@@ -29,7 +29,7 @@
 没有订单号时查列表：
 
 ```bash
-node scripts/filtalgo.js order list --page-size 5 --json
+node scripts/filtalgo.js order list --page-size 5 --json --agent-response
 ```
 
 有订单号时查详情：
@@ -40,6 +40,8 @@ node scripts/filtalgo.js order get <order_sn> --json
 
 订单列表必须保留“商品”列。优先读取 `orderItems[]`，再兜底读取 `items[]`；都没有可用商品信息时，商品列写“暂未提供商品信息”。
 
+普通订单列表和支付状态查询必须把命令返回的 `response.markdown` 从第一个 `#` 开始逐字作为唯一回复，不得重新排版或省略链接。脚本只在待支付订单自己的返回数据中存在 `buyer_links.payment` 等真实支付入口时显示直接“去支付”；如果逐单入口缺失但工具返回了订单列表入口，则显示“去支付（打开我的订单）”，不得手写或拼接收银台地址。取消订单流程继续使用本节后面的无 `--agent-response` 查询命令，以便在确认前选择目标订单。
+
 订单列表模板：
 
 ```markdown
@@ -49,7 +51,12 @@ node scripts/filtalgo.js order get <order_sn> --json
 | ---: | --- | --- | --- | ---: | --- | --- |
 | 1 | {masked_order_sn} | {time} | {status} | {amount} | {商品摘要} | {可取消/可查物流/可售后/需详情确认} |
 
+{待支付订单存在逐单支付入口时：订单 {masked_order_sn}：[去支付]({payment_url})}
+{逐单支付入口缺失但有订单列表入口时：待支付订单可以从这里继续处理：[去支付（打开我的订单）]({order_list_url})}
+
 需要查看完整订单或自己操作，可以打开：[我的订单]({order_list_url})
+
+页面信息以打开后的实时展示为准。
 ```
 
 订单详情链接优先使用 CLI 返回的 `selected_buyer_links.order_detail`；没有该字段时，读取 `buyer_link_targets.order_detail.channels.mobile_h5.url`。不要自行拼接域名、路径或参数。
@@ -82,6 +89,8 @@ node scripts/filtalgo.js logistics get <order_sn> --include-items true --include
 | {时间3} | {轨迹3} |
 
 需要查看更多订单和物流信息，可以打开：[查看订单详情]({order_detail_url})
+
+页面信息以打开后的实时展示为准。
 ```
 
 只有 `has_trace=false` 或 `packages[].traces` 为空时，才说“暂未返回具体物流节点”。如果未发货，直接说明商家尚未发货。
@@ -95,14 +104,21 @@ node scripts/filtalgo.js order list --page-size 5 --json
 node scripts/filtalgo.js order cancel <order_sn> --reason "用户取消" --confirm --json
 ```
 
+查询后分两种情况处理：
+
+- 找到可取消订单：展示脱敏订单号、商品、当前状态和金额。依据真实状态说明取消影响；未支付订单说明不会发生退款，已支付订单只有工具明确返回退款方式时才说明具体去向，否则写“退款方式以取消结果和订单页为准”。最后只问一次确认。
+- 没有可取消订单：说明最近订单的真实状态和不可取消原因，不询问确认，不调用 `order cancel`，也不声称会退款。
+
 取消前模板：
 
 ```markdown
 请确认是否取消这笔订单？
 
 - 订单号：{masked_order_sn}
+- 商品：{商品摘要}
 - 当前状态：{status}
 - 金额：{amount}
+- 取消影响：{未支付订单不会发生退款 / 已支付订单的真实退款信息 / 退款方式以取消结果和订单页为准}
 
 你明确确认后我再继续处理。
 ```

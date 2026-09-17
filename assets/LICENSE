@@ -1,0 +1,72 @@
+Filtalgo CLI Runtime License
+
+Copyright 2026 筛选算法（北京）科技有限公司
+(Filtering Algorithm (Beijing) Technology Co., Ltd.)
+All rights reserved.
+
+This license applies to the `filtalgo-cli.cjs` bundled runtime (the "Runtime").
+It does not apply to third-party components identified in the repository's
+THIRD_PARTY_NOTICES file, which remain subject to their respective licenses.
+
+1. Limited permission
+
+Subject to these terms, 筛选算法（北京）科技有限公司 (Filtering Algorithm
+(Beijing) Technology Co., Ltd.) grants you a non-exclusive, worldwide,
+royalty-free license to:
+
+  a. use and execute the Runtime as a component of an original or modified copy
+     of Filtmall Shopping Skill; and
+
+  b. reproduce and redistribute exact, unmodified copies of the Runtime only
+     when they are distributed as a component of an original or modified copy
+     of Filtmall Shopping Skill and accompanied by this license, the
+     repository's NOTICE file, and the repository's THIRD_PARTY_NOTICES file.
+
+Each recipient receives the permissions in this license directly from
+筛选算法（北京）科技有限公司 (Filtering Algorithm (Beijing) Technology Co.,
+Ltd.). You may not sublicense the Runtime.
+
+2. Restrictions
+
+Except to the extent a restriction is prohibited by applicable law, you may
+not:
+
+  a. modify, adapt, translate, or create derivative works of the Runtime;
+
+  b. reverse engineer, decompile, disassemble, or otherwise attempt to derive
+     the Runtime's source code;
+
+  c. distribute the Runtime separately from Filtmall Shopping Skill;
+
+  d. remove or alter copyright, license, attribution, or other proprietary
+     notices; or
+
+  e. use Filtmall, Filtalgo, 筛电, or associated names or marks except as
+     necessary to describe the Runtime's origin or compatibility.
+
+3. Hosted services
+
+This license does not grant access to Filtmall's hosted services, APIs,
+accounts, data, or server-side systems. Use of those services is governed by
+the applicable service terms.
+
+4. Termination
+
+Your rights under this license terminate automatically if you fail to comply
+with its terms. Upon termination, you must stop using and distributing the
+Runtime and delete copies in your possession or control, except where retention
+is required by law.
+
+5. Disclaimer of warranty
+
+THE RUNTIME IS PROVIDED "AS IS", WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF TITLE, NON-INFRINGEMENT,
+MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE RESPONSIBLE FOR
+DETERMINING WHETHER THE RUNTIME IS APPROPRIATE FOR YOUR USE.
+
+6. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, FILTERING ALGORITHM (BEIJING)
+TECHNOLOGY CO., LTD. WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES ARISING FROM OR RELATING TO THE
+RUNTIME OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.

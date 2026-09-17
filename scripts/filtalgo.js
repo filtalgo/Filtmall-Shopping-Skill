@@ -11,6 +11,12 @@ const {
   finalizeRecommendation,
   selectionDetailResponse,
 } = require('./recommendation-two-stage');
+const { runStructuredSearch } = require('./structured-search');
+const {
+  renderPreparePaymentResponse,
+  renderOrderListResponse,
+  attachAgentResponse,
+} = require('./transaction-response');
 
 const cli = path.join(__dirname, '..', 'assets', 'filtalgo-cli.cjs');
 const inputArgs = process.argv.slice(2);
@@ -175,13 +181,60 @@ const cliArgs = inputArgs.filter((arg) => arg !== '--agent-response' && arg !== 
 const productRef = productRefIdentity(cliArgs);
 const effectiveCliArgs = lookupArgsForProductRef(cliArgs, productRef);
 const captureOutput = renderAgentResponse || Boolean(productRef);
-const result = spawnSync(process.execPath, [cli, ...effectiveCliArgs], {
+const forwardedOptions = [];
+for (const option of ['--agent-session-id', '--link-channel']) {
+  const value = optionValue(cliArgs, option);
+  if (value) forwardedOptions.push(option, value);
+}
+
+function invokeBundledJson(args) {
+  const child = spawnSync(process.execPath, [cli, ...args, ...forwardedOptions], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (child.error) throw child.error;
+  let payload;
+  try {
+    payload = JSON.parse(child.stdout || '{}');
+  } catch {
+    const error = new Error(child.stderr || 'Filtalgo CLI returned invalid JSON');
+    error.code = 'INVALID_GATEWAY_RESPONSE';
+    throw error;
+  }
+  if (child.status !== 0 || payload?.ok === false) {
+    const error = new Error(payload?.error?.message || child.stderr || 'Filtalgo CLI request failed');
+    error.code = payload?.error?.code || 'FILTMALL_REQUEST_FAILED';
+    error.details = payload?.error?.details;
+    throw error;
+  }
+  return payload;
+}
+
+let structuredSearchPayload = null;
+const hasExplicitSearchControls = ['--filters', '--adapter-name', '--category', '--ranking-preferences']
+  .some((option) => cliArgs.includes(option));
+if (cliArgs[0] === 'search' && cliArgs.includes('--json') && !productRef && !hasExplicitSearchControls) {
+  try {
+    structuredSearchPayload = runStructuredSearch({
+      query: cliArgs[1] || '',
+      profile: requestProfile || {},
+      limit: optionValue(cliArgs, '--limit'),
+      invoke: invokeBundledJson,
+    });
+  } catch (error) {
+    process.stdout.write(`${JSON.stringify({ ok: false, error: { code: error.code || 'STRUCTURED_SEARCH_FAILED', message: error.message, details: error.details } }, null, 2)}\n`);
+    process.exit(1);
+  }
+}
+
+const result = structuredSearchPayload ? null : spawnSync(process.execPath, [cli, ...effectiveCliArgs], {
   stdio: captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
   encoding: captureOutput ? 'utf8' : undefined,
   maxBuffer: 16 * 1024 * 1024,
 });
 
-if (result.error) {
+if (result?.error) {
   console.error(result.error.message);
   process.exit(1);
 }
@@ -203,18 +256,28 @@ if (productRef) {
 }
 
 if (renderAgentResponse) {
-  if (result.status !== 0) {
+  if (result && result.status !== 0) {
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
     process.exit(result.status === null ? 1 : result.status);
   }
 
   try {
-    const payload = JSON.parse(result.stdout);
+    const payload = structuredSearchPayload || JSON.parse(result.stdout);
     if (requestProfile) payload.request_profile = requestProfile;
     const command = cliArgs[0];
+    if (command === 'checkout' && cliArgs[1] === 'prepare-payment') {
+      const decorated = attachAgentResponse(payload, renderPreparePaymentResponse(payload));
+      if (!decorated.response) throw new Error('支付入口暂不可用，请重新查询结算状态');
+      process.stdout.write(`${JSON.stringify(decorated, null, 2)}\n`);
+      process.exit(0);
+    }
+    if (command === 'order' && cliArgs[1] === 'list') {
+      process.stdout.write(`${JSON.stringify(attachAgentResponse(payload, renderOrderListResponse(payload)), null, 2)}\n`);
+      process.exit(0);
+    }
     if (command !== 'search') {
-      throw new Error('--agent-response 目前只用于 search 命令');
+      throw new Error('--agent-response 目前只用于 search、checkout prepare-payment 和 order list 命令');
     }
     const query = cliArgs[1] || payload?.response?.query || '';
     const assessmentResult = createSearchAssessment(payload, query);
@@ -227,9 +290,15 @@ if (renderAgentResponse) {
     process.stdout.write(`${JSON.stringify(assessmentResult.response, null, 2)}\n`);
   } catch (error) {
     process.stderr.write(`无法生成购物回复：${error.message}\n`);
-    process.stdout.write(result.stdout || '');
+    process.stdout.write(result?.stdout || '');
     process.exit(1);
   }
+  process.exit(0);
+}
+
+if (structuredSearchPayload) {
+  process.stdout.write(`${JSON.stringify(structuredSearchPayload, null, 2)}\n`);
+  process.exit(0);
 }
 
 process.exit(result.status === null ? 1 : result.status);

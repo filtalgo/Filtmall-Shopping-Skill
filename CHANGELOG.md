@@ -2,6 +2,23 @@
 
 All notable changes to Filtmall Shopping Skill are recorded here. Published versions are also available in [GitHub Releases](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases).
 
+## [Unreleased]
+
+### Changed
+
+- Added explicit mixed-license documentation: Apache-2.0 for the open-source Skill materials, a limited proprietary license for the bundled CLI runtime, and notices for bundled third-party software.
+
+## [1.11.0] - 2026-09-08
+
+### Added
+
+- Added explicit single-ingredient cosmetic information lookup with dedicated routing, evidence boundaries, and medical-safety guidance.
+
+### Changed
+
+- Updated search hydration to request the product identity, SKU, buyer-link, image, and price-evidence fields required by the recommendation renderer.
+- Preserved product-detail links and price-evidence source URLs across the complete recommendation flow.
+
 ## [1.10.0] - 2026-09-02
 
 ### Changed
@@ -43,6 +60,7 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 - Moved version-specific updates out of the README and into the changelog and GitHub Release notes.
 - Kept buyer-link channel details in the Skill's technical instructions and developer command examples.
 
+[1.11.0]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.11.0
 [1.10.0]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.10.0
 [1.6.6]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.6
 [1.6.5]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.5

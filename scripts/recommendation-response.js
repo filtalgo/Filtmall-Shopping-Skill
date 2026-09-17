@@ -129,6 +129,11 @@ function flattenFacts(item) {
 
 function extractBudget(query) {
   const normalized = cleanText(query).replaceAll(',', '');
+  const exclusive = normalized.match(/(?:预算|价格|总价)?\s*(?:低于|小于)\s*(\d+(?:\.\d+)?)\s*元?/);
+  if (exclusive) {
+    const amount = Number(exclusive[1]);
+    if (Number.isFinite(amount) && amount > 0) return { amount, hard: true, exclusive: true, text: `低于 ${amount} 元` };
+  }
   const patterns = [
     /(?:预算|价格)?\s*(\d+(?:\.\d+)?)\s*元?\s*(以内|以下|不超过|最多|封顶)/,
     /(?:以内|以下|不超过|最多|封顶)\s*(\d+(?:\.\d+)?)\s*元?/,
@@ -731,7 +736,7 @@ function prepareRecommendation(payload, query) {
   const normalized = asArray(response.items)
     .map(normalizeItem)
     .filter((item) => item.name && item.detailUrl && item.price !== null)
-    .filter((item) => !budget || item.price <= budget.amount * (budget.hard ? 1 : 1.05))
+    .filter((item) => !budget || (budget.exclusive ? item.price < budget.amount : item.price <= budget.amount * (budget.hard ? 1 : 1.05)))
     .filter((item) => concepts.filter((concept) => concept.hard).every((concept) => conceptEvidence(item.raw, concept, true).length > 0))
     .map((item) => ({ ...item, ...scoreItem(item, concepts) }))
     .sort((a, b) => b.score - a.score || a.originalIndex - b.originalIndex)
