@@ -1,4 +1,4 @@
-# Filtmall Shopping Skill
+# Filtmall Shopping | 筛电购物
 
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
