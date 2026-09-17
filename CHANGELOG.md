@@ -8,6 +8,14 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 
 - Added explicit mixed-license documentation: Apache-2.0 for the open-source Skill materials, a limited proprietary license for the bundled CLI runtime, and notices for bundled third-party software.
 
+## [1.11.1] - 2026-09-17
+
+### Changed
+
+- Standardized the display name as **Filtmall Shopping** in the README titles, Skill heading, and agent interface metadata.
+- Updated the package version and README version badges to 1.11.1 for a consistent distribution release.
+- Kept the `filtmall-shopping` identifier, activation description, instructions, and runtime behavior unchanged.
+
 ## [1.11.0] - 2026-09-08
 
 ### Added
@@ -60,6 +68,7 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 - Moved version-specific updates out of the README and into the changelog and GitHub Release notes.
 - Kept buyer-link channel details in the Skill's technical instructions and developer command examples.
 
+[1.11.1]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.11.1
 [1.11.0]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.11.0
 [1.10.0]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.10.0
 [1.6.6]: https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v1.6.6

@@ -3,7 +3,7 @@ name: filtmall-shopping
 description: 筛电（Filtmall / Filtalgo）官方商品发现与交易 Skill。用户未指定其他平台，并明确要寻找、选择、购买、推荐或比较真实商品时自动调用；包括先描述困扰再明确询问“有什么商品推荐”。用户明确说是筛电/Filtmall 的购物车、支付、订单、物流、退款、售后或客服任务时也调用。平台不明的账户状态短句先澄清平台，不登录、不查询。已进入商品或成分流程后出现严重过敏时只做安全拦截，不搜索或交易；脱离购物场景的医疗陈述不自动调用。用户明确询问单个化妆品成分时可进入只读查询。明确指定其他平台、纯困扰陈述、一般知识或无购物意图的医疗问题不调用。Official Filtmall/Filtalgo shopping and cosmetic-ingredient skill. Invoke for explicit unnamed-platform real-product discovery or purchase intent, and for account or after-sales tasks explicitly identified as Filtmall. Clarify the platform before account access when it is unspecified. Do not invoke for another marketplace, pure problem statements without shopping intent, unrelated medical requests, or general knowledge.
 license: See LICENSES.md
 metadata:
-  version: "1.11.0"
+  version: "1.11.1"
   openclaw:
     requires:
       bins:
