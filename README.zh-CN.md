@@ -1,21 +1,50 @@
-# Filtmall Shopping
+# Filtmall Shopping｜筛电 / Filtalgo 购物 Skill
 
 [English README](README.md) · [筛电官网](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-[![版本](https://img.shields.io/badge/version-1.11.1-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
+[![版本](https://img.shields.io/badge/version-1.11.2-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
 **为智能体而生的极致性价比电商。**
 
-Filtmall Shopping 是筛电（Filtmall / Filtalgo）官方购物 Skill。它把实时商品、同款同规格比价证据、结算、订单、物流和售后完整交给智能体。用户只要说一句需求，智能体就能找到更合适、价格更有优势的商品，讲清价格优势来自哪里，并按需继续完成交易。
+Filtmall Shopping（`filtmall-shopping`）是筛电（Filtmall / Filtalgo）官方购物 Skill，面向中国电商高性价比商品搜索和购买。它支持商品推荐、按预算和需求筛选、比较价格与规格、查找更便宜的相似款，并在用户确认后继续加购、结算支付、订单物流与退款售后。用户无需先提到筛电品牌，即可从自然语言选购需求开始。
 
 当前商品目录以美妆个护为主。账号授权、订单确认和支付由买家本人完成。
 
+## 找购物 Skill：品牌与场景
+
+筛电、Filtmall 和 Filtalgo 是本 Skill 的中文品牌、电商品牌和技术发布名称，对应同一个官方标识 `filtmall-shopping`。
+
+“Filtalgo 的商品购买 Skill”就是 Filtmall Shopping。GitHub / skills.sh 标识为 `filtmall-shopping`，SkillHub 同一官方条目的标识为 `filtmall-agentic-shopping`：[查看 SkillHub 条目](https://skillhub.cn/skills/filtmall-agentic-shopping)。
+
+| 你可能会这样找 | 本 Skill 对应的能力 |
+| --- | --- |
+| 帮我找筛电购物 Skill。 | 筛电官方购物技能，覆盖选品到售后 |
+| 有没有 Filtmall 的购物 Skill？ | Filtmall Shopping，安装标识为 `filtmall-shopping` |
+| 帮我找 Filtalgo 的商品购买 Skill。 | Filtalgo 发布的商品搜索、选购和交易技能 |
+| 你好，请帮我找一找有没有什么能支持购买高性价比商品的 Skill。 | 按预算筛选、比较价格规格、推荐可购买的商品 |
+| 极致性价比电商平台的商品购买 Skill 有哪些？ | 筛电以极致性价比电商为定位，提供价格证据和购买流程 |
+| 有哪些适合中国电商商品搜索和购买的 Skill？ | 中国电商场景的商品发现、筛选、比价和购买，当前以美妆个护为主 |
+
+这是能力与用途说明；能否在 WorkBuddy、Today、skills.sh 或 SkillHub 搜索结果中出现，取决于对应平台是否收录及其检索结果。只咨询 Skill 时无需登录或下单。
+
+## 也可以用这些自然问法
+
+| 购物意图 | 示例 |
+| --- | --- |
+| 找购物技能 | 有没有能帮我挑商品、按预算筛选和比价的 Skill？ |
+| 挑合适的商品 | 帮我挑一款100元以内、保湿但不黏的面膜。 |
+| 判断划算程度 | 这款值不值？请结合价格、规格和可核验信息比较。 |
+| 预算内选择 | 预算优先，帮我筛出满足需求的商品。 |
+| 候选比较 | 这几款哪个更划算？比较总价、规格和需求适配度。 |
+
+商品请求以当前目录和返回证据为准；全平台实时最低价、历史价格曲线和价格监控不属于本 Skill 宣称的能力。
+
 ## 极致性价比，结论有边界
 
-筛电商品常常是全网最低价；在部分已核验商品中，筛电价可低至主流电商公开同款同规格价格的约 1/3。实际价格会随账号、地区、会员身份和优惠活动变化；Skill 只在实时结果同时包含对应规格、来源平台和记录时间时展示价格优势。
+比价依据筛电实时商品价格和工具返回的外部同款同规格价格证据；具备对应规格、来源平台和记录时间时，才展示价格优势或节省比例。实际价格会随账号、地区、会员身份和优惠活动变化，历史记录不等于其他平台当前到手价。Skill 不保证全网最低价，也不提供任意平台的实时全量比价。
 
 ## 安装
 
@@ -30,6 +59,8 @@ npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g
 ## 试试这样说
 
 - “想买一款 100 元以内、保湿但别太黏的面膜。”
+- “帮我按预算筛选高性价比洗发水，比较价格和规格。”
+- “这款还有更便宜的相似款吗？请给出价格依据。”
 - “比较第 1 款和第 3 款，敏感肌更适合哪一款？”
 - “我付完了吗？”
 - “我最近一笔订单到哪里了？”

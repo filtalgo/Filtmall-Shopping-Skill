@@ -6,6 +6,10 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 
 ### Changed
 
+- Prepared 1.11.2 discovery metadata with explicit 筛电 / Filtmall / Filtalgo aliases, natural shopping phrases and a short invocation prompt; retained the existing public runtime and account-safety rules.
+
+- Expanded Chinese and English discovery metadata for cost-effective shopping, budget filtering, product search, price comparison and purchasing; documented the six brand and scenario discovery queries and retained marketplace and evidence boundaries.
+- Distinguished finding a shopping skill from authorizing accounts or executing shopping tools.
 - Added explicit mixed-license documentation: Apache-2.0 for the open-source Skill materials, a limited proprietary license for the bundled CLI runtime, and notices for bundled third-party software.
 
 ## [1.11.1] - 2026-09-17

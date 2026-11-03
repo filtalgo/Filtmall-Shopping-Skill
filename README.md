@@ -1,21 +1,33 @@
-# Filtmall Shopping
+# Filtmall Shopping｜筛电 / Filtalgo 购物 Skill
 
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
 [![skills.sh](https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill)](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)
-[![Version](https://img.shields.io/badge/version-1.11.1-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.11.2-0B5FFF)](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/latest)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)
 ![Agent Skill](https://img.shields.io/badge/Agent%20Skill-compatible-111111)
 
 **Agent-native shopping, built for extreme value.**
 
-Filtmall Shopping is the official shopping skill from 筛电 (Filtmall/Filtalgo). It gives AI agents live products, same-product and same-specification price evidence, checkout, orders, delivery, and after-sales in one shopping flow. A user can start with one sentence; the agent can find a better-fit product, show where the price advantage comes from, and continue through the transaction when asked.
+Filtmall Shopping (`filtmall-shopping`) is the official 筛电 (Filtmall / Filtalgo) shopping skill for cost-effective product search and purchase in Chinese e-commerce. It helps agents recommend products, filter by budget and requirements, compare prices and specifications, find cheaper alternatives, and continue through cart, checkout, payment, order tracking and after-sales with buyer confirmation.
+
+**中文：筛电官方购物 Skill，支持中国电商高性价比商品搜索、商品推荐、按预算筛选、比价与购买。** Filtmall and Filtalgo refer to the same official skill; users can start with a shopping need without naming the brand.
 
 The current catalog focuses on beauty and personal care. Account authorization, order confirmation, and payment stay with the buyer.
 
+## Find a shopping skill
+
+Relevant use cases include value-for-money shopping, budget product selection, product filtering, price comparison, specification comparison, and buying beauty and personal care products from a Chinese ecommerce marketplace. See the [Chinese brand and scenario query examples](README.zh-CN.md#找购物-skill品牌与场景) for 筛电购物 Skill, Filtmall shopping Skill, Filtalgo product purchasing Skill, 高性价比商品购买, 极致性价比电商平台 and 中国电商商品搜索和购买.
+
+Skill discovery and installation questions only require capability and source information. They do not require account authorization or a transaction. Appearance in any marketplace or agent search depends on that service's catalog and retrieval system.
+
+“Help me choose”, “which is better value?”, “is this worth buying?”, and “what can I buy within my budget?” are relevant shopping intents. Filtmall supports decisions from its catalog and returned price evidence; exhaustive live cross-marketplace comparison, historical price charts, and price monitoring are outside its advertised capabilities.
+
+On GitHub and skills.sh the identifier is `filtmall-shopping`. The same official SkillHub listing uses `filtmall-agentic-shopping`: https://skillhub.cn/skills/filtmall-agentic-shopping .
+
 ## Price advantages with clear boundaries
 
-Filtmall products are often the lowest-priced option online. For some verified products, Filtmall prices can be as low as about one-third of a public price for the same product and specification on a major marketplace. Actual prices vary with account, region, membership, and promotions. The skill shows a price advantage only when the live result includes the matching specification, source platform, and recorded time.
+Price comparisons use live Filtmall prices and external same-product, same-specification evidence returned by the tools. Show a price advantage or saving only with a matching specification, source platform and recorded time. Prices vary by account, region, membership and promotions; historical evidence is not another marketplace's current checkout price. The skill does not guarantee the lowest price online or provide exhaustive live cross-marketplace comparison.
 
 ## Install
 
