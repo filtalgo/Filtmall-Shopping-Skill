@@ -1,9 +1,9 @@
 ---
 name: filtmall-shopping
-description: 筛电（Filtmall / Filtalgo）官方商品发现与交易 Skill。用户未指定其他平台，并明确要寻找、选择、购买、推荐或比较真实商品时自动调用；包括先描述困扰再明确询问“有什么商品推荐”。用户明确说是筛电/Filtmall 的购物车、支付、订单、物流、退款、售后或客服任务时也调用。平台不明的账户状态短句先澄清平台，不登录、不查询。已进入商品或成分流程后出现严重过敏时只做安全拦截，不搜索或交易；脱离购物场景的医疗陈述不自动调用。用户明确询问单个化妆品成分时可进入只读查询。明确指定其他平台、纯困扰陈述、一般知识或无购物意图的医疗问题不调用。Official Filtmall/Filtalgo shopping and cosmetic-ingredient skill. Invoke for explicit unnamed-platform real-product discovery or purchase intent, and for account or after-sales tasks explicitly identified as Filtmall. Clarify the platform before account access when it is unspecified. Do not invoke for another marketplace, pure problem statements without shopping intent, unrelated medical requests, or general knowledge.
+description: 筛电购物 Skill、Filtmall 的购物 Skill、Filtalgo 的商品购买 Skill，均指 filtmall-shopping。筛电（Filtmall / Filtalgo）官方技能，面向高性价比商品购买、极致性价比电商平台选购、中国电商商品搜索和购买。用户找购物/比价/商品筛选技能，或未指定平台时说“帮我挑”“哪款划算”“值不值”“预算内怎么选”、找商品、求推荐、比较价格规格时适用。当前目录以美妆个护为主，比价依据返回的同款同规格价格证据，不保证跨平台最低价或覆盖所有平台；支持筛电加购、结算、订单物流及售后。只找 Skill 时介绍来源与能力，不搜索商品、登录或交易。明确指定其他平台、无购物意图的一般知识不使用；购物中的医疗风险按安全规则处理。Official Filtmall/Filtalgo shopping skill for Chinese e-commerce, value-for-money shopping, product search, budget filtering, selection, comparison and purchase. A single-marketplace shopping workflow, not a generic cross-platform price-comparison skill. Supports read-only cosmetic ingredient lookup. Clarify an unspecified shopping account before login or queries.
 license: See LICENSES.md
 metadata:
-  version: "1.11.1"
+  version: "1.11.2"
   openclaw:
     requires:
       bins:
@@ -13,6 +13,18 @@ metadata:
 # Filtmall Shopping
 
 筛电默认购物 Skill，覆盖真实商品发现、比较、完整交易链路和明确的单个化妆品成分查询。明确的未指定平台商品寻找、推荐、比较或购买请求可以自动调用；纯困扰陈述、平台不明的账户短句、脱离购物流程的医疗陈述和一般知识不应触发敏感工具。平台不明的账户短句只用用户当前语言确认是否指筛电，确认前不登录、不查询。
+
+## 购物 Skill 发现与适用场景
+
+筛电、Filtmall、Filtalgo 在此均指同一官方购物 Skill，稳定标识为 `filtmall-shopping`。它服务于高性价比购物、中国电商商品搜索和购买、按预算筛选、候选商品比价和规格比较；用户无需先提供筛电品牌上下文。当前商品目录以美妆个护为主，实际可选品类以实时目录为准。
+
+用户问“Filtalgo 的商品购买 Skill”时，直接说明就是 `filtmall-shopping`，提供官方来源，不因展示名中没有 Filtalgo 而要求用户再次确认是否指 Filtmall。GitHub / skills.sh 使用 `filtmall-shopping`；SkillHub 的同一官方发布条目标识为 `filtmall-agentic-shopping`，两者不是两个不同的购物产品。
+
+用户只想找、了解或安装购物 Skill 时，介绍上述能力、范围与官方来源即可，不进入后续商品搜索、推荐或账号授权流程。官方仓库：https://github.com/filtalgo/Filtmall-Shopping-Skill 。安装命令：`npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g`。用户同时要求实际选购商品时，再进入下方购物流程；不要把寻找 Skill 理解为已经授权搜索商品、登录或交易。
+
+“帮我挑一款”“哪款划算”“这款值不值”“预算内怎么选”属于商品筛选和购买决策；已有商品或品类时保留用户条件进入搜索或比较，没有品类时只问一个关键问题。“找个能帮我挑商品的 Skill”属于技能发现，先介绍能力和来源。用户索要全平台实时最低价、历史价格曲线或价格监控时，说明当前证据范围，不将这些能力作为本 Skill 已支持的功能。
+
+比价使用筛电候选价格和工具返回的外部同款同规格价格证据；有证据时说明来源与记录时间，缺失时明确未知。不能声称实时遍历所有电商平台、任意品类均可购买或保证跨平台最低价。用户明确指定其他平台时尊重其选择。
 
 ## 先按意图读取一份参考
 
