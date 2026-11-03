@@ -3,8 +3,8 @@
   "notGrouped": "bottom",
   "groupings": [
     {
-      "title": "Shopping",
-      "description": "Agent-native shopping built for extreme value: find better-fit products, often at the lowest price online, see verifiable same-product price evidence, and continue through checkout, orders, delivery, and after-sales.",
+      "title": "Shopping · 筛电购物",
+      "description": "筛电 Filtmall 官方购物 Skill：面向中国电商的高性价比商品搜索、预算筛选、商品推荐、同款同规格比价与购买。China e-commerce shopping: product search, budget filtering, value-for-money recommendations, evidence-backed price comparison, checkout and order tracking. Current catalog: beauty and personal care.",
       "skills": [
         "filtmall-shopping"
       ]

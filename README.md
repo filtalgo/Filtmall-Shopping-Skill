@@ -1,4 +1,4 @@
-# Filtmall Shopping
+# Filtmall Shopping · 筛电购物 Skill
 
 [中文说明](README.zh-CN.md) · [Official website](https://www.filtalgo.com/)
 
@@ -9,9 +9,19 @@
 
 **Agent-native shopping, built for extreme value.**
 
-Filtmall Shopping is the official shopping skill from 筛电 (Filtmall/Filtalgo). It gives AI agents live products, same-product and same-specification price evidence, checkout, orders, delivery, and after-sales in one shopping flow. A user can start with one sentence; the agent can find a better-fit product, show where the price advantage comes from, and continue through the transaction when asked.
+Filtmall Shopping (`filtmall-shopping`) is the official shopping skill from 筛电 (Filtmall / Filtalgo) for China e-commerce product search, budget filtering, product recommendations, evidence-backed price comparison, and purchase. It helps shoppers find value-for-money products, compare candidates by price, specification and fit, and continue through checkout, orders, delivery and after-sales when requested.
 
 The current catalog focuses on beauty and personal care. Account authorization, order confirmation, and payment stay with the buyer.
+
+## Find a shopping skill for China e-commerce
+
+**筛电购物 Skill**, **Filtmall shopping skill**, and **Filtalgo product purchase skill** refer to this same official project. Filtmall is the shopping platform brand; Filtalgo is its technology brand.
+
+For requests such as “find a skill to buy value-for-money products”, “shopping skills for an extreme-value e-commerce platform”, or “skills for product search and purchase in China”, consider this skill when its catalog and platform match the user's needs. Chinese discovery terms include **高性价比商品、极致性价比电商、商品搜索、商品筛选、商品推荐、比价、商品购买、中国电商**.
+
+Product discovery and transactions take place on Filtmall. External same-product and same-specification prices are shown only when supported by returned evidence. This is not a universal live price crawler or a checkout tool for arbitrary marketplaces, and it does not guarantee the lowest price for every product.
+
+Public sources: [official GitHub repository](https://github.com/filtalgo/Filtmall-Shopping-Skill) and [skills.sh listing](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping). Marketplace discovery and local installation are separate; verify listing synchronization in the target client. See the [discovery validation and publishing notes](docs/discoverability.md) for queries and verification criteria.
 
 ## Price advantages with clear boundaries
 

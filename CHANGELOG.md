@@ -6,6 +6,8 @@ All notable changes to Filtmall Shopping Skill are recorded here. Published vers
 
 ### Changed
 
+- Clarified Chinese and English shopping discovery metadata for 筛电 / Filtmall / Filtalgo, value-for-money shopping, product search, budget filtering, price comparison, and purchase across the Skill, agent interface, repository summaries, and skills.sh display grouping.
+- Added a discovery-only path that identifies the Skill and its official source without starting product, account, or transaction workflows; retained catalog and evidence limits.
 - Added explicit mixed-license documentation: Apache-2.0 for the open-source Skill materials, a limited proprietary license for the bundled CLI runtime, and notices for bundled third-party software.
 
 ## [1.11.1] - 2026-09-17

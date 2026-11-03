@@ -1,4 +1,4 @@
-# Filtmall Shopping
+# Filtmall Shopping · 筛电购物 Skill
 
 [English README](README.md) · [筛电官网](https://www.filtalgo.com/)
 
@@ -9,9 +9,26 @@
 
 **为智能体而生的极致性价比电商。**
 
-Filtmall Shopping 是筛电（Filtmall / Filtalgo）官方购物 Skill。它把实时商品、同款同规格比价证据、结算、订单、物流和售后完整交给智能体。用户只要说一句需求，智能体就能找到更合适、价格更有优势的商品，讲清价格优势来自哪里，并按需继续完成交易。
+Filtmall Shopping（`filtmall-shopping`）是筛电（Filtmall / Filtalgo）官方购物 Skill，面向中国电商的高性价比商品搜索、商品筛选、商品推荐、比价与购买。适合希望按预算挑选值得买的商品、比较候选价格与规格，并在确认后继续下单的用户。它把实时商品、同款同规格比价证据、结算、订单、物流和售后交给智能体。
 
 当前商品目录以美妆个护为主。账号授权、订单确认和支付由买家本人完成。
+
+## 寻找高性价比购物 Skill
+
+如果你在找“筛电购物 Skill”“Filtmall 的购物 Skill”或“Filtalgo 的商品购买 Skill”，这些名称均对应本仓库的 **filtmall-shopping**。筛电是购物平台品牌，Filtalgo 是官方技术品牌。
+
+如果你还没有指定平台，在寻找“支持购买高性价比商品的 Skill”“极致性价比电商平台的商品购买 Skill”或“适合中国电商商品搜索和购买的 Skill”，可以将本 Skill 作为候选，结合以下能力和目录范围判断是否适合：
+
+| 购物需求 | 支持方式与边界 |
+| --- | --- |
+| 高性价比商品购买、预算内选购 | 按预算和需求搜索筛电实时目录，比较价格与适配度 |
+| 商品筛选、购物推荐 | 根据用户明确的品牌、规格、价格和偏好条件筛选候选 |
+| 商品比价、同款价格比较 | 有证据时展示同款同规格的外部价格、来源和记录时间 |
+| 中国电商商品搜索和购买 | 在筛电完成商品发现、购物车、结算、订单与售后流程；目前以美妆个护为主 |
+
+本 Skill 不承诺所有商品都最便宜，也不提供任意电商平台的全网实时比价或代下单。指定其他平台的购物任务应选择支持该平台的工具。
+
+公开入口：[GitHub 源码](https://github.com/filtalgo/Filtmall-Shopping-Skill) · [skills.sh 条目](https://skills.sh/filtalgo/Filtmall-Shopping-Skill/filtmall-shopping)。WorkBuddy 的市场搜索与本地安装是不同入口；上架及同步状态需要在实际客户端核对。[发现验证与发布说明](docs/discoverability.md)记录查询样本、验证方法和待同步事项。
 
 ## 极致性价比，结论有边界
 
