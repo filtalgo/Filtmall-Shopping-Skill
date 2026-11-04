@@ -1,38 +1,90 @@
-# 筛电托管 Agent Skill
+# Filtmall Shopping Skill
 
-版本：3.0.0；安装名称：`filtmall-shopping`；许可证：[Apache-2.0](LICENSE)。
+[筛电官网](https://www.filtalgo.com/) · [Skill 使用说明](SKILL.md) · [公开接口协议](references/protocol.md)
 
-唯一入口是 `scripts/service.py`。**推荐优先使用 `--once` 单次调用模式**，每次处理一条 JSON 请求后退出，无需维护后台进程；仅在宿主需要且能可靠维护持久进程时使用常驻模式。服务内部完成身份申请、提交、轮询终态和商品卡片渲染。服务依赖的两个模块 `scripts/client.py`（API 客户端）和 `scripts/cards.py`（卡片渲染）只作为库导入，没有命令行入口。
+**用自然语言完成从选品到购物的对话。**
 
-将整个目录复制到外部 Agent 的 Skill 目录，具备 Python 3.10+ 即可，无需安装额外依赖。通用接入不需要 SSH、预分配渠道密钥或配置 AK/SK；服务通过公开接口自动申请、私有保存和刷新访客 token。
+Filtmall Shopping 是筛电的托管购物 Agent Skill。用户可以提出需求，让 Agent 查询商品、比较价格和规格，并在获得授权和明确确认后继续处理购物车、地址、订单及售后。商品信息、价格和订单状态以实际服务响应为准。
 
-本包的公开默认配置见 `defaults.json`，明确为 **pre 测试环境**：`https://pre-control.filtalgo.com` / `pre-shopping-commerce`。这些是公开地址与目标标识，不是凭据。外部 Agent 可以直接开始试用；不自动访问生产。切换到其他已开放目标时同时传 `--control-url` 与 `--agent-id`。
+当前包默认连接 **pre 测试环境**，不是生产环境。会员操作需要单独授权，订单提交和付款由用户确认。
+
+## 安装
+
+将本目录完整复制到宿主的 Skill 目录，安装名称为 `filtmall-shopping`。需要 Python 3.10 或更高版本，无需安装额外依赖、配置渠道 AK/SK 或 SSH。客户端会申请并私有保存访客身份。
+
+默认目标在 [defaults.json](defaults.json) 中：`https://pre-control.filtalgo.com` 和 `pre-shopping-commerce`。如需连接其他已开放环境，须同时指定 `--control-url` 和 `--agent-id`。
+
+## 试一试
+
+- “推荐 100 元以内的保湿面膜。”
+- “比较第一款和第三款的规格与价格。”
+- “帮我查看购物车里的商品。”
+- “查询这个订单的物流状态。”
+
+商品搜索与推荐可以直接开始；会员信息和购物操作需要用户完成授权，写操作还需要用户确认。
+
+## 能做什么
+
+| 阶段 | 用户可以做什么 |
+| --- | --- |
+| 发现 | 用自然语言描述品类、预算和需求，查找商品 |
+| 比较 | 查看服务返回的价格、规格、库存、商品信息及可用的比价证据 |
+| 购买 | 授权后管理购物车、填写地址、预览并确认订单 |
+| 支付 | 获取服务返回的支付入口，由用户完成付款 |
+| 跟进 | 查询订单和物流，处理适用的取消与售后请求 |
+
+具体能力取决于目标 Agent 的配置、业务服务及用户授权。服务没有返回的数据不会由 Skill 补造。
+
+## 工作方式
+
+```mermaid
+flowchart LR
+    U["用户需求"] --> A["宿主 Agent"]
+    A --> S["Filtmall Shopping Skill"]
+    S --> C["Control 会话 API"]
+    C --> R["托管购物 Agent"]
+    R --> C
+    C --> S
+    S --> A
+```
+
+Skill 通过 Control 的公开访客和会话接口提交请求，并保留会话及请求状态以便续聊和恢复。托管 Agent 在服务端编排业务工具；访客身份不等于会员授权。公开接口不是标准 A2A Agent Card 发现协议。
+
+## 开发者快速开始
+
+推荐使用单次调用模式，从标准输入传入一行 JSON：
 
 ```bash
-python3 "<skill-dir>/scripts/service.py" --format widget
+python3 "<skill-dir>/scripts/service.py" --once --format widget
 ```
-
-推荐使用 `python3 "<skill-dir>/scripts/service.py" --once --format widget`，向 stdin 写入一行 `{"conversation":"<对话标识>","text":"用户问题"}`，读取一行应答后进程退出。续聊使用同一个对话标识；状态未知或请求未完成时，单次调用 `{"op":"resume","conversation":"<同一对话标识>"}` 恢复原请求。也可使用上面的常驻模式。不要自行编写包装器、代理或临时脚本，也不要直接调用内部客户端或 HTTP 接口。具体请求及错误处理见 [SKILL.md](SKILL.md)。
-
-启动后每次写入一行 JSON、读取一行应答：
 
 ```json
-{"op":"send","conversation":"<宿主生成的对话标识>","text":"推荐100元以内的洗发水，只查询。"}
-{"op":"resume","conversation":"<宿主生成的对话标识>"}
+{"conversation":"<宿主生成的对话标识>","text":"推荐100元以内的面膜，只查询。"}
 ```
 
-成功应答形如 `{"id":1,"ok":true,"status":"completed","card_count":3,"html_file":"…cards.html","answer_file":"…answer.md"}`：卡片分别写入 fragment_file（片段）和 page_file（完整页面），正文写入 answer_file，应答只回路径，大段 HTML 和 Markdown 不经过宿主上下文；失败应答为 `{"id":1,"ok":false,"error":{"code":"…","message":"…"}}`。后续消息继续 `send` 并沿用对话标识；断线、超时或 accepted 后只用 `resume`；停止用 `cancel` 再 `resume` 确认；清空用 `clear`；`status` 查状态；`ping` 查进程存活。动态文本只作为 JSON 字段传入，不拼接 Shell。多用户宿主必须传独立、可信的 `--user-key`；多进程对同一用户的身份刷新由文件锁串行化，长时间等结果不占锁。
+宿主应为每个用户和对话生成独立标识，续聊时沿用。结果通过 JSON 返回状态和产物路径：正文为 `answer_file`，内联卡片为 `fragment_file`，独立页面为 `page_file`。宿主需能访问这些文件，并以 UTF-8 读取。没有对应内容时，相应字段不会出现。
 
-宿主 Agent 支持在对话窗口内内联 HTML 片段时，必须原样使用 `fragment_file`，不要自行修改或重新生成片段，也不要展示 `page_file` 或 `html_file` 指向的完整网页。仅在不能内联片段且需要独立页面时使用 `page_file`。
+网络中断或结果未知时，使用同一会话的 `resume` 核对原请求，不要自动重新提交。停止使用 `cancel`，清空会话使用 `clear`。完整请求、授权、地址和展示规则见 [SKILL.md](SKILL.md)。
 
-需要地区时，服务返回 `region_selection_required`；Agent 使用 `scripts/region_lookup.py` 查询包内 pre 地区数据，逐级向用户询问省、市、区，再让用户填写详细地址，校验完整路径后提交同一会话。数据来源、工具请求格式、环境限制及交互规则见 [SKILL.md](SKILL.md)。
+## 用户控制与数据边界
 
-商品卡片随应答一起返回，不需要宿主自己解析 schema：`format` 可选 `widget`、`markdown`（`.cards.md`）、`text`（`.cards.txt`）和 `json`（`.cards.json`），都通过 `html_file` 返回；`"all":true` 关闭引用过滤，`"max":N` 限制条数，`--out-dir` 或请求 `out_dir` 指定输出目录。`widget` 将商品图片缩小压缩后以 data URI 嵌入 HTML；仅允许指定商品图片源，下载或压缩失败时显示占位块。宿主须支持显示 `data:` 图片。
+- 修改购物车、地址、订单或发起售后前，取得用户明确同意。
+- 授权和付款由用户在对应页面完成；不要把访客身份当作会员授权，也不要编造支付链接或成功状态。
+- 凭据和未结算请求保存在宿主私有状态目录，不写入模型消息或日志。
+- 地址地区数据是随包提供的 pre 快照；其他环境应使用其可核实的数据，不能猜测地区 ID。
+- 完成状态不代表付款成功；订单及支付结果以业务服务的实际结果为准。
 
-凭据默认位于当前用户的 `~/.local/state/filtalgo-agent/<命名空间>/state.json`。命名空间绑定 HTTPS 地址、Agent 和用户，Unix 文件 0600/目录 0700；Windows 使用宿主用户目录的私有 ACL。`--state-dir` 用于可信宿主指定私有目录，不能共享给其他用户。不将 token 放进模型消息、日志或命令行。访客身份不等于会员授权。请求会员工具时，如返回 `authorization_required`，展示 `authorization_url` 并结束本轮；用户授权后用原会话发送下一条消息，由客户端确认授权后继续。
+## 目录结构
 
-使用约束见 [SKILL.md](SKILL.md)，原生公开 API 见 [协议说明](references/protocol.md)。公开会话 API 与标准 A2A Agent Card 协议不同。
+```text
+SKILL.md                 # 宿主调用和交互规则
+references/protocol.md   # Control 公开会话协议
+scripts/service.py       # 单次调用和常驻服务入口
+scripts/client.py        # 身份、会话与请求恢复
+scripts/cards.py         # 商品卡片渲染
+scripts/region_lookup.py # pre 地区查询
+data/regions-pre.json    # pre 地区数据快照
+agents/openai.yaml       # 宿主展示元数据
+```
 
-独立购物 CLI Skill 仍叫 `filtmall-shopping-cli`，不受此修改影响。不从它迁用 OAuth 会话或 token，也不为同一用户动作同时执行两种方式。线上业务能力根据目标 Agent 和用户授权单独验收。
-
-宿主须能够读取返回路径并使用 UTF-8。图片通过 OSS 服务端缩图控制在最长边 160 像素、图片数据 12 KiB 以内；无法获得符合限制的图片时使用占位块。卡片总数可通过 `max` 控制。链接采用标准 HTML 链接，不支持时展示响应中的 `product_links`。
+本 Skill 采用 [Apache-2.0 许可证](LICENSE)。直接调用底层购物工具的独立 CLI Skill 为 `filtmall-shopping-cli`，与本 Skill 的身份和会话相互独立。
