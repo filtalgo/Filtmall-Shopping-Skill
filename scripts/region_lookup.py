@@ -10,6 +10,8 @@ DATA_PATH = Path(__file__).resolve().parents[1] / 'data' / 'regions-pre.json'
 def lookup(request, data):
     if not isinstance(request, dict):
         raise ValueError('请求必须为 JSON 对象')
+    if request.get('environment') != 'pre':
+        return {'ok': False, 'error': 'ENVIRONMENT_MISMATCH', 'message': '此地区快照仅适用于明确指定的 pre 环境。'}
     nodes = data['nodes']
     op = request.get('op')
     if op == 'children':

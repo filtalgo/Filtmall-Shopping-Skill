@@ -130,11 +130,13 @@ class OutputTests(unittest.TestCase):
     def test_region_lookup_checks_complete_parent_path(self):
         import region_lookup
         data = json.loads(region_lookup.DATA_PATH.read_text(encoding='utf8'))
-        result = region_lookup.lookup({'op': 'resolve', 'names': ['北京市', '北京市', '东城区']}, data)
+        result = region_lookup.lookup({'environment': 'pre', 'op': 'resolve', 'names': ['北京市', '北京市', '东城区']}, data)
         self.assertEqual(result['ids'], ['11', '1101', '110101'])
-        self.assertEqual(region_lookup.lookup({'op': 'resolve', 'ids': result['ids']}, data)['names'], result['names'])
-        self.assertFalse(region_lookup.lookup({'op': 'resolve', 'ids': ['11', '1101', '999999']}, data)['ok'])
-        self.assertIn('东城区', [x['name'] for x in region_lookup.lookup({'op': 'children', 'parent_id': '1101'}, data)['regions']])
+        self.assertEqual(region_lookup.lookup({'environment': 'pre', 'op': 'resolve', 'ids': result['ids']}, data)['names'], result['names'])
+        self.assertFalse(region_lookup.lookup({'environment': 'pre', 'op': 'resolve', 'ids': ['11', '1101', '999999']}, data)['ok'])
+        self.assertIn('东城区', [x['name'] for x in region_lookup.lookup({'environment': 'pre', 'op': 'children', 'parent_id': '1101'}, data)['regions']])
+        self.assertEqual(region_lookup.lookup({'op': 'children', 'parent_id': '0'}, data)['error'], 'ENVIRONMENT_MISMATCH')
+        self.assertEqual(region_lookup.lookup({'environment': 'prod', 'op': 'children', 'parent_id': '0'}, data)['error'], 'ENVIRONMENT_MISMATCH')
 
     def test_no_public_response_propagated(self):
         class Fake:

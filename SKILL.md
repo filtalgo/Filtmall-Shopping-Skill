@@ -1,6 +1,6 @@
 ---
 name: filtmall-shopping
-description: Delegate shopping questions and product discovery to the Filtalgo hosted agent through Control's public guest and conversation APIs. Use scripts/service.py in one-shot or persistent line-delimited JSON mode; it manages the guest identity, waits for the real terminal state, and returns an answer plus product cards. Supports follow-up messages, resuming interrupted requests, cancellation and clearing. No operator-provisioned AK/SK or SSH configuration is required. The included trial target is pre, not production. Member transactions require separate user authorization.
+description: Delegate product discovery and shopping questions to the production Filtalgo hosted agent through Control's public guest and conversation APIs. Use scripts/service.py in one-shot or persistent line-delimited JSON mode; it manages guest identity, waits for terminal state, and returns answers and product cards. Supports follow-up, resumption, cancellation and clearing. Available tools depend on the target Agent; member transactions require separate authorization and an Agent with commerce tools.
 license: Apache-2.0
 metadata:
   version: "3.0.0"
@@ -14,7 +14,7 @@ metadata:
 
 默认通过 Control **公开访客 API** 委托远端 Agent。包内只有一种入口：常驻服务 `scripts/service.py`。它用 Python 标准库完成身份申请、请求提交、轮询终态和商品卡片渲染，不要求用户提供 SSH、渠道 AK/SK 或预先准备 token。
 
-本包明确提供已验证的 **pre 试用入口**：`https://pre-control.filtalgo.com`，目标 `pre-shopping-commerce`，配置见 `defaults.json`。首次使用说明这是 pre 测试环境。不得自动切换到生产；用户明确指定其他已开放环境时，宿主同时传入 `--control-url` 和 `--agent-id`。
+本包默认使用**生产环境**。商品查询、购物车、订单等操作以实际响应和用户授权为准；写操作须经用户明确确认。需要切换其他已开放环境时，宿主同时传入 `--control-url` 和 `--agent-id`。
 
 ## 推荐方式：单次调用
 
@@ -139,14 +139,14 @@ python3 "<skill-dir>/scripts/service.py" --format widget
 
 ### 下单与支付
 
-- 下单（创建订单）是写操作：先做下单预览，把商品、数量、收货地址、单价、运费、优惠、应付总额列给用户，**收到明确确认后才提交**。提交后如实说明是否成功、订单号与状态；失败时明确说明未创建订单、未扣款，重试前先征得同意。
+- 下单（创建订单）是写操作：先做下单预览，把商品、数量、收货地址、单价、运费、优惠、应付总额列给用户，**收到明确确认后才提交**。提交后依据业务结果说明订单号与状态；结果不明时先核对订单和支付状态，不断言未创建或未扣款，不自动重试。
 - **订单提交成功后，同一轮答复里必须一并给出支付入口。** 服务会把答复正文中的收银台链接解析到应答的 `payment_links` 字段；有该字段时，在订单摘要后直接展示完整链接，并写明应付金额与当前订单状态（如"待付款"）。`payment_links` 为空时，用同一 `conversation` 追问一次支付链接（例如"为订单 <订单号> 拉起支付并返回支付链接"），拿到后立即展示；仍拿不到就如实说明，不要编造链接或二维码。
 - 提交订单时不要连带勾选购物车里用户未确认的其他商品；改动了购物车（例如为预览加入商品）要主动告知。
 - 支付由用户在收银台页面完成。宿主只能展示链接；不要在本地构造、改写或拼接支付地址，支付结果以用户反馈或后续查询为准。
 
 ## 地区和详细地址
 
-包内 `data/regions-pre.json` 是从 pre 商城地区服务获取的省、市、区县快照，仅适用于 pre；包含来源和获取时间，不保证未来永远有效。其他环境不能使用这份快照推断 ID，必须先取得该环境可核实的数据。远端提示地区无效或数据过期时，应提示并更新快照，不猜测或重试错误 ID。
+包内 `data/regions-pre.json` 仅供明确切换到 pre 时使用，不得用于生产地址或推断生产地区 ID；生产环境需要先取得该环境可核实的地区数据。远端提示地区无效或数据过期时，应提示并更新数据，不猜测或重试错误 ID。当前地区查询工具仅支持 pre，生产环境缺少可核实数据时应明确告知用户并停止地址创建。
 
 需要用户提供地址时，省、市、区县和详细地址各由用户明确提供，不根据上下文、默认选项或 IP 推断。宿主有选项功能时，逐级使用选项功能询问省、市、区县；在每次提问前用下方工具查询对应上级的子地区。选项数量超出宿主上限时，提供可搜索选择、分组或自由输入，不能省略未展示地区。详细地址使用自由文本，让用户填写街道、门牌等；不要用地区选项替代。已明确提供的字段无需重复询问；用户取消时停止收集。
 
@@ -157,10 +157,10 @@ python3 "<skill-dir>/scripts/region_lookup.py"
 ```
 
 ```json
-{"op":"children","parent_id":"0"}
-{"op":"children","parent_id":"<用户选择的上级ID>"}
-{"op":"resolve","ids":["<省ID>","<市ID>","<区ID>"]}
-{"op":"resolve","names":["<省名>","<市名>","<区名>"]}
+{"environment":"pre","op":"children","parent_id":"0"}
+{"environment":"pre","op":"children","parent_id":"<用户选择的上级ID>"}
+{"environment":"pre","op":"resolve","ids":["<省ID>","<市ID>","<区ID>"]}
+{"environment":"pre","op":"resolve","names":["<省名>","<市名>","<区名>"]}
 ```
 
 每次工具调用只接收一条 JSON。选项名称和 ID 必须来自工具，按实际父子关系逐级选择；自由输入必须通过 `resolve` 完整精确匹配，未匹配或有歧义时让用户澄清。某个市没有区县数据时，向用户说明当前数据不完整并停止定位，不得虚构区县或 ID。省、市、区和详细地址都齐全后，调用 `resolve` 校验完整路径，再把用户给出的详细地址以及工具返回的名称和 ID 路径作为同一 `conversation` 的下一条 `send`。如果用户只要求查询，或没有授权创建/修改地址，不得自行发起地址写入。

@@ -1,6 +1,6 @@
 # Control 公开访客与会话协议
 
-已按 Control 的 `server/routes/identity.py`、`sessions.py`、`sessions/results.py` 与 `sessions/public_documents.py` 核对。默认预发布根地址、目标见包内 `defaults.json`；这些公开值不需要按机器配置。此入口是 Control 原生公开 API，不是标准 A2A 发现协议。
+已按 Control 的 `server/routes/identity.py`、`sessions.py`、`sessions/results.py` 与 `sessions/public_documents.py` 核对。默认生产根地址和目标见包内 `defaults.json`；这些公开值不需要按机器配置。此入口是 Control 原生公开 API，不是标准 A2A 发现协议。
 
 ## 自动身份
 
@@ -15,7 +15,7 @@
 创建：`POST /api/v2/sessions`，例如：
 
 ```json
-{"agent_id":"pre-shopping-commerce","title":"外部 Agent 会话","client_id":"filtalgo-public-skill"}
+{"agent_id":"production-shopping-commerce","title":"外部 Agent 会话","client_id":"filtalgo-public-skill"}
 ```
 
 成功 HTTP 201，实际会话标识为响应 `id`。对该会话发送：
