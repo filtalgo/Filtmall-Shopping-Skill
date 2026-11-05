@@ -1,8 +1,6 @@
 # Filtmall Shopping Skill
 
-[简体中文](README.md) · [English](README_en.md)
-
-[Filtalgo Website](https://www.filtalgo.com/) · [Skill Instructions](SKILL.md) · [Public API Protocol](references/protocol.md)
+[简体中文](README.md) · [Filtalgo Website](https://www.filtalgo.com/) · [Skill Instructions](SKILL.md) · [Public API Protocol](references/protocol.md)
 
 **Shop through natural-language conversations, from product discovery to purchase.**
 

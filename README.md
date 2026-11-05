@@ -1,8 +1,6 @@
 # Filtmall Shopping Skill
 
-[简体中文](README.md) · [English](README_en.md)
-
-[筛电官网](https://www.filtalgo.com/) · [Skill 使用说明](SKILL.md) · [公开接口协议](references/protocol.md)
+[English](README_en.md) · [筛电官网](https://www.filtalgo.com/) · [Skill 使用说明](SKILL.md) · [公开接口协议](references/protocol.md)
 
 **用自然语言完成从选品到购物的对话。**
 
