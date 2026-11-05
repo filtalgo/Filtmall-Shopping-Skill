@@ -16,7 +16,7 @@ To connect to another available environment, specify both `--control-url` and `-
 
 ## Try It
 
-- “Recommend moisturizing face masks under CNY 100.”
+- “Recommend moisturizing face masks that cost no more than CNY 100.”
 - “Compare the specifications and prices of the first and third products.”
 - “Show me the items in my shopping cart.”
 - “Check the shipping status of this order.”
@@ -59,7 +59,7 @@ python3 "<skill-dir>/scripts/service.py" --once --format widget
 ```
 
 ```json
-{"conversation":"<host-generated conversation ID>","text":"Recommend face masks under CNY 100. Search only."}
+{"conversation":"<host-generated conversation ID>","text":"Recommend face masks that cost no more than CNY 100. Search only."}
 ```
 
 The host should generate a separate identifier for each user and conversation, and reuse it when continuing the conversation. Results are returned as JSON containing status and artifact paths: `answer_file` for the response text, `fragment_file` for inline cards, and `page_file` for a standalone page. The host must be able to access these files and read them as UTF-8. Fields are omitted when the corresponding content is unavailable.
