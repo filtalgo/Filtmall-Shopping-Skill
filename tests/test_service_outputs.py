@@ -92,6 +92,33 @@ class OutputTests(unittest.TestCase):
         self.assertNotIn('首单优惠', content)
         self.assertNotIn('<button', content)
 
+    def test_cart_thumbnails_are_inlined_per_item_and_not_fetched_for_markdown(self):
+        url = 'https://filtering-tech-product-data.oss-cn-beijing.aliyuncs.com/sku.png'
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXsAAAAASUVORK5CYII=')
+        cart = {'status': 'current', 'items': [
+            {'sku_id': 's1', 'title': '有图', 'quantity': 1, 'checked': True, 'thumbnail': url},
+            {'sku_id': 's2', 'title': '无图', 'quantity': 2, 'checked': False,
+             'thumbnail': 'javascript:alert(1)'}]}
+        with patch.object(cards, 'thumbnail_data', return_value=(png, 'image/png')) as fetch:
+            for fmt in ('widget', 'html'):
+                _, content = service.render_cart(cart, fmt)
+                self.assertIn('src="data:image/png;base64,', content)
+                self.assertEqual(content.count('<img '), 1)
+                self.assertIn('🛍️', content)
+                self.assertNotIn(url, content)
+                self.assertNotIn('javascript:', content)
+            self.assertEqual(fetch.call_count, 2)
+            _, markdown = service.render_cart(cart, 'md')
+            self.assertEqual(fetch.call_count, 2)
+            self.assertNotIn('data:image', markdown)
+        with patch.object(cards, 'thumbnail_data', return_value=None):
+            _, content = service.render_cart(cart, 'widget')
+            self.assertNotIn('<img ', content)
+            self.assertEqual(content.count('🛍️'), 2)
+
+    def test_cart_thumbnail_download_rejects_unapproved_hosts(self):
+        self.assertIsNone(cards.thumbnail_data('https://example.org/image.png', 1))
+
     def test_old_format_parameters_are_rejected(self):
         class Stub: pass
         for fmt in ('markdown', 'text', 'json'):

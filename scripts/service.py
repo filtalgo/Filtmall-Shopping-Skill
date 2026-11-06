@@ -122,6 +122,7 @@ CART_STYLE = '''<style>
 .fm-cart-root .fm-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
 .fm-cart-root .fm-item{display:flex;align-items:center;gap:12px;padding:12px;border:.5px solid var(--fm-line);border-radius:12px;background:var(--fm-surface)}
 .fm-cart-root .fm-thumb{width:52px;height:52px;flex:0 0 52px;border-radius:8px;background:var(--fm-surface2);display:flex;align-items:center;justify-content:center;font-size:20px}
+.fm-cart-root .fm-thumb img{width:100%;height:100%;object-fit:cover;border-radius:8px}
 .fm-cart-root .fm-info{min-width:0;flex:1 1 auto}
 .fm-cart-root .fm-name{font-size:13px;line-height:1.45;font-weight:500;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .fm-cart-root .fm-meta{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
@@ -162,12 +163,20 @@ def render_cart(value, fmt='md'):
     items = value.get('items')
     if not isinstance(items, list) or len(items) > 500:
         return failed()
-    lines, html_lines = [], []
     for item in items:
         if (not isinstance(item, dict) or not isinstance(item.get('sku_id'), str) or not item['sku_id']
                 or type(item.get('quantity')) is not int or not 0 <= item['quantity'] <= 9007199254740991
                 or type(item.get('checked')) is not bool):
             return failed()
+    images = []
+    if fmt in ('widget', 'html'):
+        for item in items:
+            url = item.get('thumbnail')
+            images.append({'thumbnail': url if isinstance(url, str) and len(url) <= 2048
+                           and url.startswith('https://') and not re.search(r'[\x00-\x20\x7f]', url) else ''})
+        cards.inline_images(images, 10)
+    lines, html_lines = [], []
+    for index, item in enumerate(items):
         title = item.get('title')
         if not isinstance(title, str) or not title.strip():
             title = '商品'
@@ -181,11 +190,13 @@ def render_cart(value, fmt='md'):
         lines.append('- %s：%s 件%s（%s）' % (title, item['quantity'], price_text, '已选' if item['checked'] else '未选'))
         state = '已选' if item['checked'] else '未选'
         price_html = '<span class="fm-price">单价 ¥%s</span>' % html.escape(str(price)) if valid_price else ''
-        html_lines.append('<li class="fm-item"><div class="fm-thumb" aria-hidden="true">🛍️</div>'
+        thumbnail = images[index].get('thumbnail') if images else ''
+        image_html = '<img src="%s" alt="">' % html.escape(thumbnail, quote=True) if thumbnail else '🛍️'
+        html_lines.append('<li class="fm-item"><div class="fm-thumb" aria-hidden="true">%s</div>'
                           '<div class="fm-info"><p class="fm-name">%s</p><div class="fm-meta">'
                           '<span class="fm-tag%s">%s</span>%s</div>'
                           '<div class="fm-sub"><span class="fm-qty">数量 %s</span></div></div></li>'
-                          % (escaped_title, ' checked' if item['checked'] else '', state, price_html, item['quantity']))
+                          % (image_html, escaped_title, ' checked' if item['checked'] else '', state, price_html, item['quantity']))
     markdown = ('购物车：\n\n' + '\n'.join(lines) + '\n') if lines else '购物车为空。\n'
     header = '<div class="fm-hd"><h2>购物车</h2><span>%s 款商品</span></div>' % len(items)
     body = header + ('<ul class="fm-list">%s</ul>' % ''.join(html_lines) if lines else '<p class="fm-message">购物车为空。</p>')
