@@ -14,6 +14,7 @@ stdout: {"id":<请求序号>,"ok":true,"status":"completed","card_count":3,"html
 """
 import argparse
 import hashlib
+import html
 import json
 import os
 import math
@@ -106,7 +107,7 @@ def run_request(client, request, default_format, default_out_dir=None, heartbeat
 def answer_text(result):
     value = (result.get('answer') or {}).get('value') or {}
     content = value.get('content')
-    return content if isinstance(content, str) else ''
+    return cards.unescape_markdown(content) if isinstance(content, str) else ''
 
 
 URL_PATTERN = re.compile(r'https://[^\s<>"\'）)】\]，。；、]+')
@@ -123,8 +124,37 @@ def extract_payment_links(answer):
     return links
 
 
+def render_cart(value):
+    """Render only the public cart projection; malformed snapshots stay unavailable."""
+    unavailable = '购物车状态正在更新或暂不可用。操作可能已生效，请先查询确认，避免重复操作。\n'
+    if not isinstance(value, dict) or value.get('status') != 'current':
+        return 'unavailable', unavailable
+    items = value.get('items')
+    if not isinstance(items, list) or len(items) > 500:
+        return 'unavailable', unavailable
+    lines = []
+    for item in items:
+        if (not isinstance(item, dict) or not isinstance(item.get('sku_id'), str) or not item['sku_id']
+                or type(item.get('quantity')) is not int or not 0 <= item['quantity'] <= 9007199254740991
+                or type(item.get('checked')) is not bool):
+            return 'unavailable', unavailable
+        title = item.get('title')
+        if not isinstance(title, str) or not title.strip():
+            title = '商品'
+        title = re.sub(r'[\x00-\x1f\x7f]+', ' ', title).strip()
+        title = re.sub(r'([\\`*_{}\[\]()#+.!|~\-])', r'\\\1', html.escape(title, quote=True))
+        price = item.get('price')
+        valid_price = (type(price) in (int, float) and 0 <= price <= 1e308
+                       and (type(price) is int or math.isfinite(price)))
+        price_text = '，单价 %s 元' % price if valid_price else ''
+        lines.append('- %s：%s 件%s（%s）' % (title, item['quantity'], price_text, '已选' if item['checked'] else '未选'))
+    return 'current', ('购物车：\n\n' + '\n'.join(lines) + '\n') if lines else '购物车为空。\n'
+
+
 def render(result, fmt, max_cards, all_cards=False):
     out = {'answer': answer_text(result)}
+    if 'cart' in result:
+        out['cart_status'], out['cart_markdown'] = render_cart(result['cart'])
     items = cards.collect(result, cards.DEFAULT_URL_BASE)
     cards.attach_answer_reasons(items, out['answer'])
     cards.attach_answer_analysis(items, out['answer'])
@@ -178,6 +208,10 @@ def write_outputs(payload, request, default_out_dir):
                 directory.chmod(0o700)
         return directory / ('turn-%s.%s' % (stamp, suffix))
     answer = payload.pop('answer', '')
+    if 'cart_markdown' in payload:
+        target = target_path('cart_path', 'cart.md')
+        private_write(target, payload.pop('cart_markdown'))
+        payload['cart_file'] = str(target)
     if 'widget_cards' in payload:
         items = payload.pop('widget_cards')
         cards.inline_images(items, 10)
@@ -274,7 +308,7 @@ def handle(client, request, default_format, default_out_dir=None):
     for key in ('authorization_url', 'message', 'error', 'presentation_status'):
         if result.get(key):
             payload[key] = result[key]
-    if result.get('ok', True) and (result.get('answer') is not None or result.get('context_documents') or result.get('region_selector')):
+    if (result.get('ok', True) and (result.get('answer') is not None or result.get('context_documents') or result.get('region_selector'))) or 'cart' in result:
         rendered = render(result, fmt, request.get('max') or 0, bool(request.get('all')))
         payload.update(rendered)
         if result.get('region_selector'):

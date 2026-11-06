@@ -530,6 +530,19 @@ class Client:
         selectors = [d for d in docs if d.get('kind') == 'filtalgo.commerce.region_selector' and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
         selectors.sort(key=lambda d: d['revision'])
         result = {'ok': status in ('completed', 'waiting'), 'status': status, 'conversation': key, 'answer': answer, 'context_documents': context}
+        # The cart is a stable, conversation-scoped document. Only its newest
+        # revision from this turn is safe to present, including invalidations.
+        carts = [d for d in docs if d.get('kind') == 'filtalgo.commerce.cart'
+                 and d.get('request_id') in (None, request_id)
+                 and type(baseline) is int and type(d.get('revision')) is int
+                 and d['revision'] > baseline]
+        if carts:
+            latest_cart = max(carts, key=lambda d: d['revision'])
+            value_cart = latest_cart.get('value')
+            if latest_cart.get('schema_version') == 1 and isinstance(value_cart, dict):
+                result['cart'] = value_cart
+            else:
+                result['cart'] = {'status': 'unavailable', 'items': []}
         if status == 'completed' and selectors:
             latest = selectors[-1]['value']
             group_id, part_count = latest.get('group_id'), latest.get('part_count')
@@ -547,7 +560,7 @@ class Client:
             result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'REGION_SELECTOR_UNAVAILABLE', 'message': '地区选择器暂时不可用，请稍后重试。'}})
         current_context = [d for d in context if d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
         result['context_documents'] = [d for d in current_context if d.get('kind') not in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')]
-        if status == 'completed' and not answer and not current_context and not selectors and not selector_errors:
+        if status == 'completed' and not answer and not current_context and not selectors and not selector_errors and 'cart' not in result:
             result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'NO_PUBLIC_RESPONSE', 'message': '本轮没有可展示的结果，请稍后重试。'}})
         with self.store.locked() as state:
             current = state['conversations'].get(key)

@@ -44,7 +44,8 @@ Authorization: Bearer <平台访客 token>
 - 每个 document 有 `document_id`、`kind`、`schema_version`、`request_id`、`revision`、`display_order`、`deleted`、`value`。
 - 找当前 request_id 对应的 `kind="request.status"`，再用 `value.answer_document_id` 找真正的答复文档。答复自身的 `request_id` 可能为空，不能只过滤 request_id 而丢掉答案。
 - `kind="message"` 且 `value.role="assistant"` 的 `value.content` 是当前答复。
-- `filtalgo.shopping.block:*` 的 `value.block` 包含 `schema`、`payload`、`fallbackText`。商品 schema 常见 `filtmall.products/v1`、`filtmall.products/v2` 或 `filtmall.product-card/v1`。它们是会话资料，可能包含上轮商品，只展示与当前答复引用一致的商品。
+- `filtalgo.shopping.block:*` 的 `value.block` 包含 `schema`、`payload`、`fallbackText`。商品 schema 常见 `filtmall.products/v1`、`filtmall.products/v2`、`filtmall.product-card/v1` 或 `filtmall.product-card/v2`。它们是会话资料，可能包含上轮商品，只展示与当前答复引用一致的商品。
+- `filtalgo.commerce.cart` v1 是会话内最新购物车公开快照：`value.status` 为 `current` 或 `unavailable`，`items` 包含 `sku_id`、`quantity`、`checked`，以及可选的 `goods_id`、`title`、`price`。仅展示本轮 revision 边界之后的最新版本；`unavailable` 不代表空购物车，写操作可能已生效，需先查询确认。
 - 不展示 deleted 文档、用户输入、进度或旧答复作为本轮最终输出。没有可展示答案时明确说明，不伪造。
 
 客户端将当前权威答复放在 stdout 的 `answer`，卡片及授权资料放在 `context_documents`，不输出凭据。当前实现轮询公开快照，不声称已经消费实时 SSE。

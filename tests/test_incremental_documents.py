@@ -50,4 +50,24 @@ class IncrementalTests(unittest.TestCase):
         with self.assertRaises(c.ClientError) as error: api.documents('s', 'r', 5)
         self.assertEqual(error.exception.code, 'INVALID_CURSOR')
 
+    def test_cart_only_uses_latest_current_turn_revision(self):
+        api = self.make()
+        def cart(revision, status, request='r', version=1):
+            return {'kind': 'filtalgo.commerce.cart', 'schema_version': version, 'request_id': request,
+                    'document_id': 'cart', 'revision': revision, 'value': {'status': status, 'items': []}}
+        status = {'kind': 'request.status', 'request_id': 'r', 'schema_version': 1,
+                  'value': {'status': 'completed', 'answer_document_id': None}}
+        api.documents = lambda *args: [status, cart(39, 'current'), cart(41, 'current'),
+                                       cart(42, 'unavailable'), cart(43, 'current', 'other')]
+        result = api.settle('c', {'id': 's', 'pending': {'request_id': 'r', 'start_revision': 40}}, 'completed')
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['cart']['status'], 'unavailable')
+        api.documents = lambda *args: [status, cart(39, 'current')]
+        result = api.settle('c', {'id': 's', 'pending': {'request_id': 'r', 'start_revision': 40}}, 'completed')
+        self.assertNotIn('cart', result)
+        self.assertEqual(result['error']['code'], 'NO_PUBLIC_RESPONSE')
+        api.documents = lambda *args: [status, cart(41, 'current', version=2)]
+        result = api.settle('c', {'id': 's', 'pending': {'request_id': 'r', 'start_revision': 40}}, 'completed')
+        self.assertEqual(result['cart']['status'], 'unavailable')
+
 if __name__ == '__main__': unittest.main()

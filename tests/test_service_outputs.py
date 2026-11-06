@@ -15,6 +15,55 @@ import cards
 import service
 
 class OutputTests(unittest.TestCase):
+    def test_cart_document_is_rendered_and_written_privately(self):
+        class Stub:
+            def send(self, *args):
+                return {'ok': True, 'status': 'completed', 'cart': {'status': 'current', 'items': [
+                    {'sku_id': 'sku', 'title': '<面膜> [特价]', 'quantity': 2, 'checked': True, 'price': 29.9},
+                    {'sku_id': 'sku2', 'quantity': 1, 'checked': False}]}}
+        with tempfile.TemporaryDirectory() as d:
+            result = service.handle(Stub(), {'op': 'send', 'conversation': 'c', 'text': '查看购物车'}, 'widget', d)
+            self.assertEqual(result['cart_status'], 'current')
+            path = Path(result['cart_file'])
+            content = path.read_text(encoding='utf8')
+            self.assertIn('&lt;面膜&gt; \\[特价\\]', content)
+            self.assertIn('2 件，单价 29.9 元（已选）', content)
+            self.assertIn('商品：1 件（未选）', content)
+            self.assertNotIn('sku', content)
+            if os.name != 'nt': self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_cart_empty_unavailable_and_invalid_do_not_look_alike(self):
+        self.assertEqual(service.render_cart({'status': 'current', 'items': []}), ('current', '购物车为空。\n'))
+        for value in ({'status': 'unavailable', 'items': []}, {'status': 'current', 'items': [{}]},
+                      {'status': 'current', 'items': [{'sku_id': 's', 'quantity': True, 'checked': True}]}):
+            status, text = service.render_cart(value)
+            self.assertEqual(status, 'unavailable')
+            self.assertIn('避免重复操作', text)
+
+    def test_markdown_escapes_are_readable_in_answer_and_cards(self):
+        result = {'answer': {'value': {'content': r'价格 29\.9，敷15\-20分钟，\* 和 29\\.9，\n'}},
+                  'context_documents': [{'kind': 'filtalgo.shopping.block:filtmall.product-card/v2',
+                      'value': {'block': {'schema': 'filtmall.product-card/v2', 'payload': {
+                          'product': {'goods_id': '1', 'title': r'商品 29\.9', 'price_amount': r'29\.9'}}}}}]}
+        rendered = service.render(result, 'widget', 0, True)
+        self.assertEqual(rendered['answer'], r'价格 29.9，敷15-20分钟，* 和 29\\.9，\n')
+        self.assertEqual(rendered['widget_cards'][0]['title'], '商品 29.9')
+        self.assertEqual(rendered['widget_cards'][0]['price'], '29.9')
+
+    def test_v2_card_preserves_text_and_escapes_html(self):
+        title = '商品 <测试> & "规格"'
+        block = {'schema': 'filtmall.product-card/v2', 'payload': {
+            'rank': 1, 'product': {'goods_id': 'a&b', 'sku_id': 's', 'title': title,
+                                    'price_amount': '12.00'}, 'recommendation_reason': '安全 <好>'}}
+        result = {'context_documents': [{'kind': 'filtalgo.shopping.block:filtmall.product-card/v2',
+                                         'value': {'block': block}}]}
+        card = cards.collect(result, cards.DEFAULT_URL_BASE)[0]
+        self.assertEqual(card['title'], title)
+        self.assertEqual(card['url'], 'https://m.filtalgo.com/pages/goods/product/detail?goodsId=a%26b&skuId=s')
+        rendered = cards.render_widget([card], {}, 'light', images=False)
+        self.assertIn('商品 &lt;测试&gt; &amp; &quot;规格&quot;', rendered)
+        self.assertIn('安全 &lt;好&gt;', rendered)
+
     def test_once_reads_one_request_and_exits(self):
         with tempfile.TemporaryDirectory() as d:
             proc = subprocess.run([sys.executable, str(Path(service.__file__)), '--once', '--state-dir', d],

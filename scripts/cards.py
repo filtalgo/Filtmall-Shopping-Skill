@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把 filtalgo 的 product-card/v1 资料块渲染成宿主界面友好的输出。
+"""把 filtalgo 的 product-card 资料块渲染成宿主界面友好的输出。
 
 只读请求结算结果（result JSON），不修改会话状态。
 默认只渲染当前答复确实引用的商品，避免把上轮卡片当成本轮推荐。
@@ -15,9 +15,9 @@ import urllib.parse
 
 
 CARD_KIND_PREFIX = 'filtalgo.shopping.block:'
-CARD_SCHEMAS = ('filtmall.product-card/v1',)
+CARD_SCHEMAS = ('filtmall.product-card/v1', 'filtmall.product-card/v2')
 LIST_SCHEMAS = ('filtmall.products/v1', 'filtmall.products/v2')
-DEFAULT_URL_BASE = 'https://filtalgo.com/pages/goods/product/detail'
+DEFAULT_URL_BASE = 'https://m.filtalgo.com/pages/goods/product/detail'
 IMAGE_MAX_BYTES = 12 * 1024
 IMAGE_MAX_SIDE = 160
 
@@ -30,11 +30,17 @@ AVAILABILITY = {
 }
 
 
+def unescape_markdown(text):
+    """还原 Markdown 的标点转义，保留双反斜杠及非标点转义。"""
+    return re.sub(r'\\\\|\\([!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~])',
+                  lambda match: match.group(1) if match.group(1) else match.group(0), text)
+
+
 def money(value):
     """18.8 -> 18.8 / 49 -> 49 / 49.00 -> 49"""
     if value is None or value == '':
         return None
-    text = str(value).strip()
+    text = unescape_markdown(str(value)).strip()
     try:
         number = float(text)
     except ValueError:
@@ -43,7 +49,7 @@ def money(value):
 
 
 def clean(text):
-    return re.sub(r'\s+', ' ', str(text or '')).strip()
+    return re.sub(r'\s+', ' ', unescape_markdown(str(text or ''))).strip()
 
 
 def strip_space(text):

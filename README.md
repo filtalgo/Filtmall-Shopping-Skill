@@ -62,7 +62,7 @@ python3 "<skill-dir>/scripts/service.py" --once --format widget
 {"conversation":"<宿主生成的对话标识>","text":"推荐100元以内的面膜，只查询。"}
 ```
 
-宿主应为每个用户和对话生成独立标识，续聊时沿用。结果通过 JSON 返回状态和产物路径：正文为 `answer_file`，内联卡片为 `fragment_file`，独立页面为 `page_file`。宿主需能访问这些文件，并以 UTF-8 读取。没有对应内容时，相应字段不会出现。
+宿主应为每个用户和对话生成独立标识，续聊时沿用。结果通过 JSON 返回状态和产物路径：正文为 `answer_file`，内联卡片为 `fragment_file`，独立页面为 `page_file`，本轮购物车快照为 `cart_file`。`cart_status` 为 `current` 或 `unavailable`；后者表示状态不可用，应先查询确认，不要重复写操作。宿主需能访问这些文件，并以 UTF-8 读取。没有对应内容时，相应字段不会出现。
 
 网络中断或结果未知时，使用同一会话的 `resume` 核对原请求，不要自动重新提交。停止使用 `cancel`，清空会话使用 `clear`。完整请求、授权、地址和展示规则见 [SKILL.md](SKILL.md)。
 
