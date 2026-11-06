@@ -82,7 +82,7 @@ references/protocol.md   # Control 公开会话协议
 scripts/service.py       # 单次调用和常驻服务入口
 scripts/client.py        # 身份、会话与请求恢复
 scripts/cards.py         # 商品卡片渲染
-scripts/region_lookup.py # pre 地区查询
+scripts/region_lookup.py # 地区名称转三级ID与地址拆分，内置pre目录
 data/regions-pre.json    # pre 地区数据快照
 agents/openai.yaml       # 宿主展示元数据
 ```
