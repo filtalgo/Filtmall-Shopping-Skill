@@ -95,6 +95,20 @@ python3 "<skill-dir>/scripts/service.py" --format widget
 
 `send`/`resume` 可选项：`format`（`widget` 内联 HTML 片段、`html` 完整页面、`md` Markdown；默认 `widget`，同时适用于商品卡片与购物车）、`max`（商品卡片条数上限）、`all`（渲染全部商品卡片，不用引用过滤）、`timeout`（秒）、`out_dir`（本轮文件的输出目录，覆盖 `--out-dir`）；`send` 另有 `wait:false`（只返回 `accepted`，随后必须 `resume`，不把 accepted 当完成）、`allow_repeat`、`force`。
 
+### 按宿主选择展示格式
+
+| 适用场景 | 请求参数 | 商品产物 | 购物车产物 |
+| --- | --- | --- | --- |
+| 聊天窗口或宿主界面支持内联 HTML | `"format":"widget"`（默认） | `fragment_file` | `cart_fragment_file` |
+| 使用浏览器或 WebView 打开独立页面 | `"format":"html"` | `page_file` | `cart_page_file` |
+| 宿主支持 Markdown 或只需文本展示 | `"format":"md"` | `html_file`（`.cards.md`） | `cart_file`（`.cart.md`） |
+
+启动参数 `--format widget` / `--format html` / `--format md` 设置默认格式；`send` 或 `resume` 请求中的 `format` 覆盖该默认值。模式只决定商品卡片和购物车产物，正文始终从 `answer_file` 读取；同一轮没有某类内容时不会返回对应字段。`html` 商品页面展示本轮卡片，不是商城商品详情页；卡片中的商品详情链接指向真实商城页面。内联商品图需要宿主支持 `data:` 图片。
+
+```json
+{"op":"send","conversation":"<对话标识>","text":"查看购物车","format":"md"}
+```
+
 **自定义产物路径**（宿主展示工具有目录或文件命名要求时使用）：`fragment_path`、`page_path`、`answer_path`、`cart_path` 分别指定商品 HTML 片段、商品完整页面、正文 Markdown、购物车产物的**完整文件路径**，也可用等价的 `"out_dirs":{...}` 传入。指定后该产物直接写到目标路径，父目录按需创建，同名文件允许覆盖（默认命名仍只新建，不覆盖历史轮次）；未指定的产物继续走默认目录命名。宿主内联展示工具要求固定目录或文件名时，应通过这里指定，而不是移动或改写已产出的文件：
 
 ```json

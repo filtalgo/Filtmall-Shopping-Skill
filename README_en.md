@@ -64,6 +64,20 @@ python3 "<skill-dir>/scripts/service.py" --once --format widget
 
 The host should generate a separate identifier for each user and conversation, and reuse it when continuing the conversation. Choose `format` as `widget` (inline HTML), `html` (standalone page), or `md` (Markdown); the same format applies to product cards and cart snapshots. Results contain `answer_file` for response text, `fragment_file`, `page_file`, or `html_file` for product cards, and `cart_file` for the current turn's cart. HTML modes also return `cart_fragment_file` or `cart_page_file`. `cart_status` is `current` or `unavailable`; when unavailable, check the cart before repeating a write operation. The host must be able to access these files and read them as UTF-8. Fields are omitted when the corresponding content is unavailable.
 
+### Choose a display format
+
+| Use case | Request parameter | Product artifact | Cart artifact |
+| --- | --- | --- | --- |
+| Embed in a chat or host interface | `"format":"widget"` (default) | `fragment_file`, an HTML fragment | `cart_fragment_file`, an HTML fragment |
+| Open a standalone page in a browser or WebView | `"format":"html"` | `page_file`, a complete HTML page | `cart_page_file`, a complete HTML page |
+| Display Markdown or text | `"format":"md"` | `html_file`, a `.cards.md` file | `cart_file`, a `.cart.md` file |
+
+The format applies to product cards and carts; response text remains in `answer_file`. The standalone product page contains this turn's cards; their product links lead to the actual store pages. Inline product images require host support for `data:` images. The `--format` startup option sets the default, while a request's `format` overrides it. For example:
+
+```json
+{"op":"send","conversation":"<conversation-id>","text":"Show my cart","format":"md"}
+```
+
 If the network is interrupted or the result is unknown, use `resume` within the same conversation to check the original request; do not automatically resubmit it. Use `cancel` to stop a request and `clear` to clear a conversation. See [SKILL.md](SKILL.md) for the complete request, authorization, address, and presentation rules.
 
 ## User Control and Data Boundaries
