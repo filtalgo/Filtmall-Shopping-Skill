@@ -93,33 +93,33 @@ python3 "<skill-dir>/scripts/service.py" --format widget
 {"op":"ping"}
 ```
 
-`send`/`resume` 可选项：`format`（`widget`/`markdown`/`text`/`json`，覆盖默认）、`max`（条数上限）、`all`（渲染全部卡片，不用引用过滤）、`timeout`（秒）、`out_dir`（本轮文件的输出目录，覆盖 `--out-dir`）；`send` 另有 `wait:false`（只返回 `accepted`，随后必须 `resume`，不把 accepted 当完成）、`allow_repeat`、`force`。
+`send`/`resume` 可选项：`format`（`widget` 内联 HTML 片段、`html` 完整页面、`md` Markdown；默认 `widget`，同时适用于商品卡片与购物车）、`max`（商品卡片条数上限）、`all`（渲染全部商品卡片，不用引用过滤）、`timeout`（秒）、`out_dir`（本轮文件的输出目录，覆盖 `--out-dir`）；`send` 另有 `wait:false`（只返回 `accepted`，随后必须 `resume`，不把 accepted 当完成）、`allow_repeat`、`force`。
 
-**自定义产物路径**（宿主展示工具有目录或文件命名要求时使用）：`fragment_path`、`page_path`、`answer_path` 三个可选字段分别指定 HTML 片段、完整页面、正文 Markdown 的**完整文件路径**，也可用等价的 `"out_dirs":{...}` 传入。指定后该产物直接写到目标路径，父目录按需创建，同名文件允许覆盖（默认命名仍只新建，不覆盖历史轮次）；未指定的产物继续走默认目录命名。宿主内联展示工具要求固定目录或文件名时，应通过这里指定，而不是移动或改写已产出的文件：
+**自定义产物路径**（宿主展示工具有目录或文件命名要求时使用）：`fragment_path`、`page_path`、`answer_path`、`cart_path` 分别指定商品 HTML 片段、商品完整页面、正文 Markdown、购物车产物的**完整文件路径**，也可用等价的 `"out_dirs":{...}` 传入。指定后该产物直接写到目标路径，父目录按需创建，同名文件允许覆盖（默认命名仍只新建，不覆盖历史轮次）；未指定的产物继续走默认目录命名。宿主内联展示工具要求固定目录或文件名时，应通过这里指定，而不是移动或改写已产出的文件：
 
 ```json
 {"op":"send","conversation":"<对话标识>","text":"推荐100元以内的面膜，只查询。","format":"widget",
  "out_dirs":{"fragment_path":"<宿主要求的绝对路径>/mask.html","answer_path":"<宿主要求的绝对路径>/answer.md"}}
 ```
 
-成功应答（每轮结果拆成两个文件，应答只回路径）：
+成功应答示例（默认 widget，应答返回产物路径）：
 
 ```json
 {"id":1,"ok":true,"status":"completed","conversation":"...","card_count":3,
- "fragment_file":"...fragment.html","page_file":"...page.html","answer_file":"...answer.md"}
+ "fragment_file":"...fragment.html","answer_file":"...answer.md"}
 ```
 
-- `fragment_file` 是纯 HTML 片段，供宿主内联；`page_file` 是完整 HTML 文档，可用浏览器打开。兼容字段 `html_file` 指向 `page_file`。没有可渲染卡片时不返回这些字段。
-- **展示优先级：如果宿主 Agent 支持在对话窗口内内联显示 HTML 片段，必须读取并内联展示 `fragment_file`，不要使用 `page_file` 或兼容字段 `html_file` 展示完整网页。** 仅当宿主不能内联片段且需要独立页面时，才使用 `page_file`。
+- `widget` 返回商品 HTML 片段 `fragment_file`，`html` 返回完整页面 `page_file`，`md` 返回 Markdown 文件；商品产物的兼容字段 `html_file` 指向本次选择的文件。没有可渲染商品时不返回这些字段。
+- **展示优先级：宿主支持内联 HTML 时使用 `widget` 并原样展示 `fragment_file`；需要独立页面时请求 `html` 并展示 `page_file`；只能展示文本时请求 `md`。**
 - **片段直接使用产物：读取 `fragment_file` 后，原样交给宿主的内联 HTML 展示能力；不要自行修改、重写、裁剪、重新排版或重新生成 HTML，也不要自行提取或替换图片和链接。** 宿主需要进行安全处理时由宿主自身执行；若无法展示原片段，应说明限制，不自行改造片段。
 - 以下做法都是错误的：因为片段或 base64 图片看起来很大、担心消耗 token 而删除图片或精简 HTML；因为觉得样式复杂而改写 CSS 或重新排版；把商品信息提取出来重新拼装 HTML；把图片换成外链或占位图；只展示部分卡片来缩短片段。需要控制卡片数量时应在请求中使用 `max`，由服务生成产物。
 - 优先使用宿主支持的文件引用或直接渲染能力，把片段作为文件产物交给展示层，不要为了渲染而将整份 HTML 或 base64 图片读入模型上下文。展示层直接读取和渲染文件本身不需要模型生成这些内容；如果宿主工具将文件内容返回模型上下文，仍可能产生 token 消耗。不能因预估 token 消耗自行修改产物。
 - `answer_file`：本轮 answer 正文 Markdown，与卡片内容互为补充，不能从历史轮次补造。answer 为空时该项不返回。
-- `cart_file`：本轮购物车公开快照的 Markdown 文件，与 `answer_file` 独立；读取并展示其内容，即使本轮没有正文也要展示。`cart_status: current` 表示快照可用（含空购物车）；`cart_status: unavailable` 表示状态更新中或不可用，必须提示用户先查询确认，不要重复原操作或称购物车为空。不要用本轮之外的历史购物车补充结果。
-- 两个文件相互独立：宿主可用 `fragment_file` 做卡片区域，用 `answer_file` 做正文区域；`markdown` 时为 `.cards.md`，`text` 时为 `.cards.txt`，`json` 时为 `.cards.json`，仍放在 `html_file` 字段里返回，扩展名区分内容。
+- `cart_file`：本轮购物车公开快照，格式与 `format` 一致；`widget` 另返回同路径的 `cart_fragment_file`，`html` 另返回同路径的 `cart_page_file`，`md` 返回 `.cart.md`。读取并展示其内容，即使本轮没有正文也要展示。`cart_status: current` 表示快照可用（含空购物车）；`cart_status: unavailable` 表示状态更新中或不可用，必须提示用户先查询确认，不要重复原操作或称购物车为空。不要用本轮之外的历史购物车补充结果。
+- 正文、商品和购物车产物相互独立；商品 Markdown 为 `.cards.md`，商品路径仍放在 `html_file` 字段里。
 - 展示时按需读取文件，不要整份回显到对话；用一句摘要代替整段长文，不要把同一批商品既念一遍又贴一遍。
 - 输出目录默认用户状态目录下的 `output/<会话哈希>/`，由 `--out-dir` 或请求 `out_dir` 覆盖；文件按轮次命名，不覆盖历史轮次。图片压缩后嵌入 HTML，不单独保存。不向用户展示文件路径以外的内部细节。
-- 请求里给了 `fragment_path` / `page_path` / `answer_path`（或 `out_dirs`）时，对应产物直接写到该绝对路径并允许覆盖；此时不再额外创建默认目录。只有全部产物都指定了路径，才不会产生默认目录。
+- 请求里给了 `fragment_path` / `page_path` / `answer_path` / `cart_path`（或 `out_dirs`）时，对应产物直接写到该绝对路径并允许覆盖；此时不再额外创建默认目录。只有全部产物都指定了路径，才不会产生默认目录。
 - 带 `authorization_url` 时展示链接并结束本轮，见下节。
 - 带 `region_selection_required: true` 时，按下方地区和地址流程逐项询问，不显示 HTML 地区选择器，不猜测地区 ID。
 - `NO_PUBLIC_RESPONSE` 表示执行完成但没有本轮可展示结果；`REGION_SELECTOR_UNAVAILABLE` 表示地区数据获取失败。均须向用户提示失败，不能当作成功。
@@ -189,13 +189,12 @@ python3 "<skill-dir>/scripts/region_lookup.py"
 
 服务内置卡片渲染，`filtalgo.shopping.block:filtmall.product-card/v2` 及历史 v1 由它转成宿主友好的输出，宿主不需要自己解析 schema：
 
-- `widget`：`fragment_file` 是内联 HTML 片段，`page_file` 是可独立打开的完整页面；跟随宿主的样式变量（背景、文字、边框、圆角），缺失时用内置兜底，深浅色自适应。
-- `markdown`：宿主只能显示纯文本时使用，保留价格、规格、评分、比价与商品链接。
-- `text`：终端直出，价格用 ANSI 着色、标题加粗，按终端宽度折行并做中文行首禁则；彩色模式把商品链接渲染成 OSC 8 可点击链接，无色模式给出可复制的原始地址。
-- `json`：归一化后的商品字段（`title`、`price`、`spec`、`availability`、`advantage`、`url` 等），供宿主自行排版。
+- `widget`：`fragment_file` 是内联 HTML 片段；跟随宿主的样式变量，缺失时用内置兜底，深浅色自适应。
+- `html`：`page_file` 是可独立打开的完整 HTML 页面。
+- `md`：Markdown 文件，保留价格、规格、评分、比价与商品链接。
 - 默认只渲染**当前答复明确引用**的商品（按 `goodsId`、`skuId` 或标题匹配），避免把上轮卡片当成本轮推荐；确需全量渲染时显式传 `"all":true`。`"max":N` 限制条数。
-- 缩略图：`widget` 获取图片源生成的缩略图并以 base64 `data:` URI 嵌入 HTML；仅下载允许的商品图片源，禁止重定向；无法获取符合限制的图片时使用占位块。
-- 字段映射：标题与 `subtitle`、`price_amount`、`original_price_amount`、`spec_summary`、`dimensions`、`availability`、`payload.score`、`product_overview`、`recommendation_reason`、`brand_knowledge`（品牌名与品牌背景）、`price_advantage`（平台、对比价、省额、省率、对比时间）、`fallbackText`；`store_id`、`compared_at` 等仅进 `json` 输出，不占版面。卡片概述取值顺序为正文 `商品分析` → `product_overview`，理由取值顺序为 `recommendation_reason` → 正文 `推荐理由`。
+- 缩略图：`widget` 和 `html` 获取图片源生成的缩略图并以 base64 `data:` URI 嵌入 HTML；仅下载允许的商品图片源，禁止重定向；无法获取符合限制的图片时使用占位块。
+- 字段映射：标题与 `subtitle`、`price_amount`、`original_price_amount`、`spec_summary`、`dimensions`、`availability`、`payload.score`、`product_overview`、`recommendation_reason`、`brand_knowledge`（品牌名与品牌背景）、`price_advantage`（平台、对比价、省额、省率、对比时间）、`fallbackText`。卡片概述取值顺序为正文 `商品分析` → `product_overview`，理由取值顺序为 `recommendation_reason` → 正文 `推荐理由`。
 - **推荐理由以正文为准**：`payload.recommendation_reason` 是必填字符串但当前发布实现固定填 `""`，所以卡片里的理由来自 `filtalgo.shopping.text` 正文。正文按商品分段（如 `1. 商品名` + `**商品分析**：…` + `**推荐理由**：…`），按段落序号与卡片 `rank` 对应归属；正文无序号时才退回标题匹配。仅搬用服务端本轮已写出的文字，取不到就留空，不生成不外推。块内 `recommendation_reason` 非空时优先用它，不被正文覆盖。
 - 参数缺失时降级：无 `price` 就不显示价格，无 `advantage` 就不显示比价，只有 `fallbackText` 时按标题渲染，绝不推测价格、库存或优惠。
 

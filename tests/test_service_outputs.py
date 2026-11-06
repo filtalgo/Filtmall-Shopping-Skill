@@ -15,6 +15,35 @@ import cards
 import service
 
 class OutputTests(unittest.TestCase):
+    def test_cart_and_products_follow_each_format(self):
+        item = {'title': '推荐商品', 'rank': 1, 'price': '29.9', 'url': None, 'thumbnail': ''}
+        cart = {'status': 'current', 'items': [{'sku_id': 's', 'title': '<script> & 面膜',
+                                                 'quantity': 2, 'checked': False, 'price': 9.5}]}
+        with tempfile.TemporaryDirectory() as d:
+            for fmt in ('widget', 'html', 'md'):
+                with self.subTest(format=fmt), patch.object(cards, 'collect', return_value=[item.copy()]):
+                    output = service.render({'cart': cart}, fmt, 0, True)
+                    service.write_outputs(output, {'conversation': 'c'}, d)
+                    product = Path(output['html_file']).read_text(encoding='utf8')
+                    cart_content = Path(output['cart_file']).read_text(encoding='utf8')
+                    self.assertIn('推荐商品', product)
+                    self.assertIn('&lt;script&gt; &amp; 面膜', cart_content)
+                    self.assertNotIn('<script>', cart_content)
+                    self.assertIn('2 件，单价 9.5 元（未选）', cart_content)
+                    if fmt == 'widget':
+                        self.assertEqual(output['cart_fragment_file'], output['cart_file'])
+                        self.assertNotIn('<!doctype', cart_content)
+                        self.assertNotIn('page_file', output)
+                    elif fmt == 'html':
+                        self.assertEqual(output['cart_page_file'], output['cart_file'])
+                        self.assertTrue(cart_content.startswith('<!doctype html>'))
+                        self.assertTrue(product.startswith('<!doctype html>'))
+                        self.assertNotIn('fragment_file', output)
+                    else:
+                        self.assertTrue(output['cart_file'].endswith('.md'))
+                        self.assertTrue(output['html_file'].endswith('.cards.md'))
+                        self.assertNotIn('<section', cart_content)
+
     def test_cart_document_is_rendered_and_written_privately(self):
         class Stub:
             def send(self, *args):
@@ -22,7 +51,7 @@ class OutputTests(unittest.TestCase):
                     {'sku_id': 'sku', 'title': '<面膜> [特价]', 'quantity': 2, 'checked': True, 'price': 29.9},
                     {'sku_id': 'sku2', 'quantity': 1, 'checked': False}]}}
         with tempfile.TemporaryDirectory() as d:
-            result = service.handle(Stub(), {'op': 'send', 'conversation': 'c', 'text': '查看购物车'}, 'widget', d)
+            result = service.handle(Stub(), {'op': 'send', 'conversation': 'c', 'text': '查看购物车'}, 'md', d)
             self.assertEqual(result['cart_status'], 'current')
             path = Path(result['cart_file'])
             content = path.read_text(encoding='utf8')
@@ -39,6 +68,20 @@ class OutputTests(unittest.TestCase):
             status, text = service.render_cart(value)
             self.assertEqual(status, 'unavailable')
             self.assertIn('避免重复操作', text)
+        for fmt in ('widget', 'html', 'md'):
+            status, content = service.render_cart({'status': 'unavailable', 'items': []}, fmt)
+            self.assertEqual(status, 'unavailable')
+            self.assertIn('避免重复操作', content)
+            self.assertNotIn('购物车为空', content)
+
+    def test_old_format_parameters_are_rejected(self):
+        class Stub: pass
+        for fmt in ('markdown', 'text', 'json'):
+            with self.subTest(format=fmt), self.assertRaises(service.ClientError) as error:
+                service.handle(Stub(), {'op': 'send', 'conversation': 'c', 'text': 'x', 'format': fmt}, 'widget')
+            self.assertEqual(error.exception.code, 'INVALID_FORMAT')
+        self.assertEqual(service.handle(Stub(), {'op': 'ping'}, 'widget')['capabilities']['formats'],
+                         ['widget', 'html', 'md'])
 
     def test_markdown_escapes_are_readable_in_answer_and_cards(self):
         result = {'answer': {'value': {'content': r'价格 29\.9，敷15\-20分钟，\* 和 29\\.9，\n'}},
@@ -90,14 +133,19 @@ class OutputTests(unittest.TestCase):
 
     def test_fragment_page_are_distinct(self):
         with tempfile.TemporaryDirectory() as d:
-            out = {'cards_html': '<div><a href="https://example.test">商品</a></div>'}
+            out = {'_format': 'widget', 'cards_html': '<div><a href="https://example.test">商品</a></div>'}
+            page_out = {'_format': 'html', 'cards_html': out['cards_html']}
             service.write_outputs(out, {'conversation': 'c'}, d)
+            service.write_outputs(page_out, {'conversation': 'c'}, d)
             fragment = Path(out['fragment_file']).read_text(encoding='utf8')
-            page = Path(out['page_file']).read_text(encoding='utf8')
+            page = Path(page_out['page_file']).read_text(encoding='utf8')
             self.assertFalse(fragment.startswith('<!doctype'))
             self.assertIn(fragment, page)
             self.assertTrue(page.startswith('<!doctype html>'))
-            self.assertEqual(out['html_file'], out['page_file'])
+            self.assertEqual(out['html_file'], out['fragment_file'])
+            self.assertEqual(page_out['html_file'], page_out['page_file'])
+            self.assertNotIn('page_file', out)
+            self.assertNotIn('fragment_file', page_out)
 
     def test_widget_embeds_compressed_image(self):
         data = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXsAAAAASUVORK5CYII=')
@@ -107,7 +155,7 @@ class OutputTests(unittest.TestCase):
                 result = service.render({}, 'widget', 0)
                 service.write_outputs(result, {'conversation': 'c'}, d)
             fragment = Path(result['fragment_file']).read_text(encoding='utf8')
-            self.assertIn(fragment, Path(result['page_file']).read_text(encoding='utf8'))
+            self.assertNotIn('page_file', result)
             import re
             match = re.search(r'src="data:image/png;base64,([^"]+)"', fragment)
             self.assertIsNotNone(match)
@@ -131,7 +179,7 @@ class OutputTests(unittest.TestCase):
     def test_async_send_preserves_authorization(self):
         class Fake:
             def send(self, *args): return {'ok': True, 'status': 'authorization_required', 'authorization_url': 'https://example.test/auth'}
-        result = service.handle(Fake(), {'op': 'send', 'conversation': 'c', 'text': 'x', 'wait': False}, 'json')
+        result = service.handle(Fake(), {'op': 'send', 'conversation': 'c', 'text': 'x', 'wait': False}, 'md')
         self.assertEqual(result['status'], 'authorization_required')
         self.assertIn('authorization_url', result)
 
@@ -156,7 +204,7 @@ class OutputTests(unittest.TestCase):
                 return {'ok': True, 'status': 'completed'}
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / 'heartbeat.json'
-            service.run_request(Fake(), {'op': 'resume', 'conversation': 'c'}, 'json', heartbeat_path=path)
+            service.run_request(Fake(), {'op': 'resume', 'conversation': 'c'}, 'md', heartbeat_path=path)
             self.assertTrue(path.exists())
 
     def test_invalid_timeout_does_not_submit(self):
@@ -171,7 +219,7 @@ class OutputTests(unittest.TestCase):
         class Fake:
             def send(self, *args): return {'ok': True, 'status': 'completed', 'region_selector': selector}
         with tempfile.TemporaryDirectory() as d:
-            result = service.handle(Fake(), {'op': 'send', 'conversation': 'c', 'text': '创建地址'}, 'json', d)
+            result = service.handle(Fake(), {'op': 'send', 'conversation': 'c', 'text': '创建地址'}, 'md', d)
             self.assertTrue(result['region_selection_required'])
             self.assertNotIn('region_selector_fragment_file', result)
             self.assertNotIn('region_selector_file', result)
@@ -190,7 +238,7 @@ class OutputTests(unittest.TestCase):
     def test_no_public_response_propagated(self):
         class Fake:
             def resume(self, *args): return {'ok': False, 'status': 'completed', 'error': {'code': 'NO_PUBLIC_RESPONSE', 'message': '无结果'}}
-        result = service.handle(Fake(), {'op': 'resume', 'conversation': 'c'}, 'json')
+        result = service.handle(Fake(), {'op': 'resume', 'conversation': 'c'}, 'md')
         self.assertEqual(result['error']['code'], 'NO_PUBLIC_RESPONSE')
         self.assertFalse(result['ok'])
 
@@ -198,7 +246,7 @@ class OutputTests(unittest.TestCase):
         class Fake:
             def send(self, *args): raise AssertionError('must not submit')
         with self.assertRaises(client.ClientError) as exc:
-            service.handle(Fake(), {'op': 'send', 'conversation': 'c', 'text': 'x', 'format': 'bad'}, 'json')
+            service.handle(Fake(), {'op': 'send', 'conversation': 'c', 'text': 'x', 'format': 'bad'}, 'md')
         self.assertEqual(exc.exception.code, 'INVALID_FORMAT')
 
     def test_output_files_do_not_overwrite(self):

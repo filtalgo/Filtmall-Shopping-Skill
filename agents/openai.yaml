@@ -1,4 +1,4 @@
 interface:
   display_name: "筛电 Agent"
   short_description: "委托筛电 Agent 查商品；常驻服务直接返回界面卡片"
-  default_prompt: "使用 $filtmall-shopping：优先直接运行 scripts/service.py --once，通过标准输入提交 conversation 和用户文本，每次调用自动等待终态，续聊沿用对话标识；异常未结算时使用 resume，勿重复提交。不要编写包装器或调用内部客户端。支持对话内联 HTML 时原样展示 fragment_file；正文读取 answer_file。"
+  default_prompt: "使用 $filtmall-shopping：优先直接运行 scripts/service.py --once，通过标准输入提交 conversation 和用户文本，每次调用自动等待终态，续聊沿用对话标识；异常未结算时使用 resume，勿重复提交。不要编写包装器或调用内部客户端。支持对话内联 HTML 时原样展示 fragment_file 和 cart_fragment_file；正文读取 answer_file。其他宿主按需选择 html 或 md 格式并展示对应商品和购物车文件。"

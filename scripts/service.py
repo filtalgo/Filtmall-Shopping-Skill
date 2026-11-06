@@ -9,7 +9,7 @@ stdout: {"id":<请求序号>,"ok":true,"status":"completed","card_count":3,"html
         {"id":<请求序号>,"ok":false,"error":{"code":"...","message":"..."}}
 
 整轮对话只启动一次，复用同一个 Client、文件锁和本地状态；按行串行处理，应答顺序与请求一致。
-每轮成功结果拆成两个文件：商品卡片 HTML（html_file）和 answer 正文（answer_file），应答只回路径。
+商品卡片和购物车按 format 输出片段、完整页面或 Markdown；正文另存 answer_file，应答只回路径。
 不会新建身份，也不会在失败后重发。不向 stdout 写日志：诊断信息全部进 stderr。
 """
 import argparse
@@ -35,10 +35,10 @@ import client  # noqa: E402
 ClientError = client.ClientError
 
 PROTOCOL = 1
-FORMATS = ('widget', 'markdown', 'text', 'json')
+FORMATS = ('widget', 'html', 'md')
 OPS = ('send', 'resume', 'cancel', 'clear', 'auth-reset', 'status', 'ping')
 # 请求里可对单个产物指定完整文件路径，覆盖默认目录命名。
-OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path')
+OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path', 'cart_path')
 
 
 def state_directory(args):
@@ -124,37 +124,54 @@ def extract_payment_links(answer):
     return links
 
 
-def render_cart(value):
+def render_cart(value, fmt='md'):
     """Render only the public cart projection; malformed snapshots stay unavailable."""
     unavailable = '购物车状态正在更新或暂不可用。操作可能已生效，请先查询确认，避免重复操作。\n'
+    def output(status, markdown, body):
+        if fmt not in ('widget', 'html'):
+            return status, markdown
+        fragment = '<section class="filtalgo-cart">%s</section>' % body
+        return status, html_page(fragment, '购物车') if fmt == 'html' else fragment
+
+    def failed():
+        return output('unavailable', unavailable, '<p>%s</p>' % html.escape(unavailable.strip()))
+
     if not isinstance(value, dict) or value.get('status') != 'current':
-        return 'unavailable', unavailable
+        return failed()
     items = value.get('items')
     if not isinstance(items, list) or len(items) > 500:
-        return 'unavailable', unavailable
-    lines = []
+        return failed()
+    lines, html_lines = [], []
     for item in items:
         if (not isinstance(item, dict) or not isinstance(item.get('sku_id'), str) or not item['sku_id']
                 or type(item.get('quantity')) is not int or not 0 <= item['quantity'] <= 9007199254740991
                 or type(item.get('checked')) is not bool):
-            return 'unavailable', unavailable
+            return failed()
         title = item.get('title')
         if not isinstance(title, str) or not title.strip():
             title = '商品'
         title = re.sub(r'[\x00-\x1f\x7f]+', ' ', title).strip()
-        title = re.sub(r'([\\`*_{}\[\]()#+.!|~\-])', r'\\\1', html.escape(title, quote=True))
+        escaped_title = html.escape(title, quote=True)
+        title = re.sub(r'([\\`*_{}\[\]()#+.!|~\-])', r'\\\1', escaped_title)
         price = item.get('price')
         valid_price = (type(price) in (int, float) and 0 <= price <= 1e308
                        and (type(price) is int or math.isfinite(price)))
         price_text = '，单价 %s 元' % price if valid_price else ''
         lines.append('- %s：%s 件%s（%s）' % (title, item['quantity'], price_text, '已选' if item['checked'] else '未选'))
-    return 'current', ('购物车：\n\n' + '\n'.join(lines) + '\n') if lines else '购物车为空。\n'
+        html_lines.append('<li>%s：%s 件%s（%s）</li>' % (escaped_title, item['quantity'], price_text, '已选' if item['checked'] else '未选'))
+    markdown = ('购物车：\n\n' + '\n'.join(lines) + '\n') if lines else '购物车为空。\n'
+    body = '<h2>购物车</h2><ul>%s</ul>' % ''.join(html_lines) if lines else '<p>购物车为空。</p>'
+    return output('current', markdown, body)
+
+
+def html_page(fragment, title):
+    return '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title></head><body>\n%s\n</body></html>\n' % (html.escape(title), fragment)
 
 
 def render(result, fmt, max_cards, all_cards=False):
-    out = {'answer': answer_text(result)}
+    out = {'answer': answer_text(result), '_format': fmt}
     if 'cart' in result:
-        out['cart_status'], out['cart_markdown'] = render_cart(result['cart'])
+        out['cart_status'], out['cart_content'] = render_cart(result['cart'], fmt)
     items = cards.collect(result, cards.DEFAULT_URL_BASE)
     cards.attach_answer_reasons(items, out['answer'])
     cards.attach_answer_analysis(items, out['answer'])
@@ -167,20 +184,16 @@ def render(result, fmt, max_cards, all_cards=False):
     if not items:
         return out
     meta = {'title': '', 'footer': ''}
-    if fmt == 'widget':
+    if fmt in ('widget', 'html'):
         out['widget_cards'] = items
         out['product_links'] = [{'title': item['title'], 'url': item['url']} for item in items if item.get('url')]
-    elif fmt == 'markdown':
+    elif fmt == 'md':
         out['cards_markdown'] = cards.render_markdown(items, meta)
-    elif fmt == 'text':
-        out['cards_text'] = cards.render_text(items, meta, False, 80)
-    else:
-        out['cards'] = items
     return out
 
 
 def write_outputs(payload, request, default_out_dir):
-    """本轮结果拆成两个文件：卡片文件（html_file）和 answer 正文（answer_file），应答只回路径。"""
+    """按所选格式保存商品和购物车产物，正文单独保存。"""
     conversation = request['conversation']
     directory = Path(request.get('out_dir') or default_out_dir or Path.home() / '.local/state/filtalgo-agent/output')
     directory = directory / hashlib.sha256(conversation.encode()).hexdigest()[:16]
@@ -208,35 +221,31 @@ def write_outputs(payload, request, default_out_dir):
                 directory.chmod(0o700)
         return directory / ('turn-%s.%s' % (stamp, suffix))
     answer = payload.pop('answer', '')
-    if 'cart_markdown' in payload:
-        target = target_path('cart_path', 'cart.md')
-        private_write(target, payload.pop('cart_markdown'))
+    fmt = payload.pop('_format', 'widget')
+    if 'cart_content' in payload:
+        target = target_path('cart_path', 'cart.html' if fmt in ('widget', 'html') else 'cart.md')
+        private_write(target, payload.pop('cart_content'))
         payload['cart_file'] = str(target)
+        if fmt == 'widget': payload['cart_fragment_file'] = str(target)
+        if fmt == 'html': payload['cart_page_file'] = str(target)
     if 'widget_cards' in payload:
         items = payload.pop('widget_cards')
         cards.inline_images(items, 10)
         payload['cards_html'] = cards.render_widget(items, {'title': '', 'footer': ''}, 'auto')
     if 'cards_html' in payload:
         fragment = payload.pop('cards_html')
-        fragment_target = target_path('fragment_path', 'fragment.html')
-        page_target = target_path('page_path', 'page.html')
-        private_write(fragment_target, fragment)
-        private_write(page_target, '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>商品推荐</title></head><body>\n' + fragment + '\n</body></html>\n')
-        payload['fragment_file'] = str(fragment_target)
-        payload['page_file'] = str(page_target)
-        payload['html_file'] = str(page_target)
+        if fmt == 'html':
+            target = target_path('page_path', 'page.html')
+            private_write(target, html_page(fragment, '商品推荐'))
+            payload['page_file'] = str(target)
+        else:
+            target = target_path('fragment_path', 'fragment.html')
+            private_write(target, fragment)
+            payload['fragment_file'] = str(target)
+        payload['html_file'] = str(target)
     elif 'cards_markdown' in payload:
         target = directory / ('turn-%s.cards.md' % stamp)
         private_write(target, payload.pop('cards_markdown'))
-        payload['html_file'] = str(target)
-    elif 'cards_text' in payload:
-        target = directory / ('turn-%s.cards.txt' % stamp)
-        private_write(target, payload.pop('cards_text'))
-        payload['html_file'] = str(target)
-    elif 'cards' in payload:
-        card_items = payload.pop('cards')
-        target = directory / ('turn-%s.cards.json' % stamp)
-        private_write(target, json.dumps(card_items, ensure_ascii=False, indent=2))
         payload['html_file'] = str(target)
     if answer.strip():
         target = target_path('answer_path', 'answer.md')
