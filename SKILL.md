@@ -186,7 +186,7 @@ python3 "<skill-dir>/scripts/region_lookup.py"
 
 ## 商品卡片
 
-服务内置卡片渲染，`filtalgo.shopping.block:filtmall.product-card/v1` 由它转成宿主友好的输出，宿主不需要自己解析 schema：
+服务内置卡片渲染，支持 `filtalgo.shopping.block:filtmall.product-card/v2` 和 `filtalgo.shopping.block:filtmall.product-card/v4`，不再识别 `product-card/v1`，也不识别 `product-card/v3`。宿主不需要自己解析 schema：
 
 - `widget`：`fragment_file` 是内联 HTML 片段，`page_file` 是可独立打开的完整页面；跟随宿主的样式变量（背景、文字、边框、圆角），缺失时用内置兜底，深浅色自适应。
 - `markdown`：宿主只能显示纯文本时使用，保留价格、规格、评分、比价与商品链接。
@@ -197,6 +197,7 @@ python3 "<skill-dir>/scripts/region_lookup.py"
 - 字段映射：标题与 `subtitle`、`price_amount`、`original_price_amount`、`spec_summary`、`dimensions`、`availability`、`payload.score`、`product_overview`、`recommendation_reason`、`brand_knowledge`（品牌名与品牌背景）、`price_advantage`（平台、对比价、省额、省率、对比时间）、`fallbackText`；`store_id`、`compared_at` 等仅进 `json` 输出，不占版面。卡片概述取值顺序为正文 `商品分析` → `product_overview`，理由取值顺序为 `recommendation_reason` → 正文 `推荐理由`。
 - **推荐理由以正文为准**：`payload.recommendation_reason` 是必填字符串但当前发布实现固定填 `""`，所以卡片里的理由来自 `filtalgo.shopping.text` 正文。正文按商品分段（如 `1. 商品名` + `**商品分析**：…` + `**推荐理由**：…`），按段落序号与卡片 `rank` 对应归属；正文无序号时才退回标题匹配。仅搬用服务端本轮已写出的文字，取不到就留空，不生成不外推。块内 `recommendation_reason` 非空时优先用它，不被正文覆盖。
 - 参数缺失时降级：无 `price` 就不显示价格，无 `advantage` 就不显示比价，只有 `fallbackText` 时按标题渲染，绝不推测价格、库存或优惠。
+- v4 的 `analysis_evidence` 使用 `filtmall.cited-facts-inline/v2`：JSON 保留原数据；卡内分析按远端文字片段与引用编号展示，引用资料可展开查看，Markdown/text 同样附上资料。不从正文重新猜引用，不重新编号；引用须对应当前商品和 SKU。格式或商品关联异常时不展示该引用，并提示异常。独立于商品卡片的其他引用块不在本次渲染范围内。
 
 ## 身份与独立入口
 

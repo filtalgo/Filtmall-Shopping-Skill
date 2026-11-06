@@ -44,7 +44,7 @@ Authorization: Bearer <平台访客 token>
 - 每个 document 有 `document_id`、`kind`、`schema_version`、`request_id`、`revision`、`display_order`、`deleted`、`value`。
 - 找当前 request_id 对应的 `kind="request.status"`，再用 `value.answer_document_id` 找真正的答复文档。答复自身的 `request_id` 可能为空，不能只过滤 request_id 而丢掉答案。
 - `kind="message"` 且 `value.role="assistant"` 的 `value.content` 是当前答复。
-- `filtalgo.shopping.block:*` 的 `value.block` 包含 `schema`、`payload`、`fallbackText`。商品 schema 常见 `filtmall.products/v1`、`filtmall.products/v2` 或 `filtmall.product-card/v1`。它们是会话资料，可能包含上轮商品，只展示与当前答复引用一致的商品。
+- `filtalgo.shopping.block:*` 的 `value.block` 包含 `schema`、`payload`、`fallbackText`。商品卡片仅支持 `filtmall.product-card/v2`、`filtmall.product-card/v4`，不再识别 product-card/v1。商品列表 `filtmall.products/v1`、`filtmall.products/v2` 是独立协议，仍按原方式处理。v4 的 `analysis_evidence` 原样保留，并按其中的文字片段、引用编号和对应商品/SKU展示卡内分析与资料；不自动补造引用。它们是会话资料，可能包含上轮商品，只展示与当前答复引用一致的商品。
 - 不展示 deleted 文档、用户输入、进度或旧答复作为本轮最终输出。没有可展示答案时明确说明，不伪造。
 
 客户端将当前权威答复放在 stdout 的 `answer`，卡片及授权资料放在 `context_documents`，不输出凭据。当前实现轮询公开快照，不声称已经消费实时 SSE。

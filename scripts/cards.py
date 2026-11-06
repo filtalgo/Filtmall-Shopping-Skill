@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把 filtalgo 的 product-card/v1 资料块渲染成宿主界面友好的输出。
+"""把 filtalgo 的 product-card/v2、v4 资料块渲染成宿主界面友好的输出。
 
 只读请求结算结果（result JSON），不修改会话状态。
 默认只渲染当前答复确实引用的商品，避免把上轮卡片当成本轮推荐。
@@ -15,7 +15,7 @@ import urllib.parse
 
 
 CARD_KIND_PREFIX = 'filtalgo.shopping.block:'
-CARD_SCHEMAS = ('filtmall.product-card/v1',)
+CARD_SCHEMAS = ('filtmall.product-card/v2', 'filtmall.product-card/v4')
 LIST_SCHEMAS = ('filtmall.products/v1', 'filtmall.products/v2')
 DEFAULT_URL_BASE = 'https://filtalgo.com/pages/goods/product/detail'
 IMAGE_MAX_BYTES = 12 * 1024
@@ -92,6 +92,7 @@ def pick(doc, payload, product, schema, index):
         'sku_id': sku_id,
         'score': money(payload.get('score')),
         'overview': clean(payload.get('product_overview')),
+        'analysis_evidence': payload.get('analysis_evidence') if schema == 'filtmall.product-card/v4' else None,
         'reason': clean(payload.get('recommendation_reason')),
         'reason_source': 'block' if clean(payload.get('recommendation_reason')) else None,
         'brand': clean(brand.get('brand_name')),
@@ -269,6 +270,54 @@ def referenced(card, text):
     return False
 
 
+def evidence_parts(card):
+    """读取v4引用；编号沿用远端，并检查引用属于当前商品及SKU。"""
+    evidence = card.get('analysis_evidence')
+    if not isinstance(evidence, dict) or evidence.get('schema') != 'filtmall.cited-facts-inline/v2':
+        return None
+    payload = evidence.get('payload')
+    if not isinstance(payload, dict):
+        return None
+    segments, references = payload.get('segments'), payload.get('references')
+    if not isinstance(segments, list) or not 1 <= len(segments) <= 128 or not isinstance(references, list) or not 1 <= len(references) <= 20:
+        return None
+    by_id, numbers = {}, set()
+    for ref in references:
+        if not isinstance(ref, dict) or any(not isinstance(ref.get(key), str) or not ref[key].strip() for key in ('citation_id', 'title', 'publisher', 'public_snippet')):
+            return None
+        number = ref.get('number')
+        if type(number) is not int or not 1 <= number <= 20 or number in numbers or ref['citation_id'] in by_id:
+            return None
+        by_id[ref['citation_id']] = ref
+        numbers.add(number)
+    text, used = [], set()
+    for segment in segments:
+        if not isinstance(segment, dict) or not isinstance(segment.get('text'), str):
+            return None
+        ids = segment.get('citation_ids')
+        if not isinstance(ids, list) or len(ids) > 20 or any(not isinstance(key, str) or key not in by_id for key in ids):
+            return None
+        if any(not card.get('goods_id') or not card.get('sku_id') or by_id[key].get('goods_id') != card['goods_id'] or by_id[key].get('sku_id') != card['sku_id'] for key in ids):
+            return None
+        text.append(segment['text'] + ''.join('[%d]' % by_id[key]['number'] for key in dict.fromkeys(ids)))
+        used.update(ids)
+    return ''.join(text), [ref for ref in references if ref['citation_id'] in used]
+
+
+def analysis_text(card):
+    evidence = evidence_parts(card)
+    return evidence[0] if evidence else card.get('analysis') or card.get('overview')
+
+
+def reference_text(card):
+    evidence = evidence_parts(card)
+    if evidence:
+        return ['[%d] %s · %s：%s' % (ref['number'], ref['title'], ref['publisher'], ref['public_snippet']) for ref in evidence[1]]
+    if card.get('analysis_evidence') is not None:
+        return ['引用资料格式或商品关联异常，暂未展示引用。']
+    return []
+
+
 def theme_vars(theme):
     light = {
         '--fcard-fg': 'var(--color-text-primary,#111)',
@@ -408,6 +457,8 @@ def render_widget(cards, meta, theme, images=True):
     out.append('<div class="fcard-root" style="display:flex;flex-direction:column;gap:10px">')
     out.append('<h2 style="%s">%s</h2>' % (head_style, html.escape(summary)))
     for card in cards:
+        evidence = evidence_parts(card)
+        reference_lines = reference_text(card)
         price = card.get('price')
         price_html = ('<span style="font-size:16px;font-weight:500;color:var(--fcard-price)">¥%s</span>'
                       % html.escape(price)) if price else ''
@@ -440,6 +491,8 @@ def render_widget(cards, meta, theme, images=True):
                    html.escape(advantage['comparison']), html.escape(price or '?')))
         go_html = ('<span class="fcard-go" style="font-size:12px;color:var(--fcard-muted);'
                    'white-space:nowrap;margin-left:auto">查看商品 ›</span>') if card.get('url') else ''
+        if reference_lines and card.get('url'):
+            go_html = '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>' % (html.escape(card['url'], quote=True), go_html)
         footer_html = ''
         if advantage_html or go_html:
             footer_html = ('<div style="display:flex;align-items:center;gap:6px;margin-top:8px">%s%s</div>'
@@ -456,9 +509,12 @@ def render_widget(cards, meta, theme, images=True):
                       % html.escape(str(card.get('rank'))))
         score_html = ('<span style="font-size:11px;color:var(--fcard-muted)">评分 %s</span>'
                       % html.escape(score)) if score else ''
-        overview = card.get('analysis') or card.get('overview')
-        overview_html = ('<p class="fcard-o" style="font-size:12px;line-height:1.55;color:var(--fcard-muted);'
-                         'margin:6px 0 0">%s</p>' % html.escape(overview)) if overview else ''
+        overview = analysis_text(card)
+        overview_class = '' if evidence else 'fcard-o'
+        overview_html = ('<p class="%s" style="font-size:12px;line-height:1.55;color:var(--fcard-muted);'
+                         'margin:6px 0 0">%s</p>' % (overview_class, html.escape(overview))) if overview else ''
+        if reference_lines:
+            overview_html += '<details style="font-size:12px;line-height:1.55;margin-top:6px"><summary>查看引用资料</summary>%s</details>' % ''.join('<p>%s</p>' % html.escape(line) for line in reference_lines)
         subtitle_html = ('<p style="font-size:11px;line-height:1.45;color:var(--fcard-muted);'
                          'margin:2px 0 0">%s</p>' % html.escape(card['subtitle'])) if card.get('subtitle') else ''
         reason = card.get('reason')
@@ -489,7 +545,7 @@ def render_widget(cards, meta, theme, images=True):
         card_html = ('<div style="display:flex;gap:12px;padding:12px;border-radius:var(--border-radius-lg,12px);'
                      'border:0.5px solid var(--fcard-line);background:var(--fcard-surface)">%s%s</div>'
                      % (thumb_html, body))
-        if card.get('url'):
+        if card.get('url') and not reference_lines:
             card_html = ('<a href="%s" target="_blank" rel="noopener noreferrer" '
                          'style="display:block">%s</a>'
                          % (html.escape(card['url'], quote=True), card_html))
@@ -586,10 +642,13 @@ def render_text(cards, meta, color, width, indent='  '):
         if bits:
             price_line += paint('  ·  ' + ' · '.join(bits), 'dim', color)
         out.append(indent + price_line)
-        overview = card.get('analysis') or card.get('overview')
+        overview = analysis_text(card)
         if overview:
             for line in wrap_width(overview, body):
                 out.append(indent + paint(line, 'dim', color))
+        for line in reference_text(card):
+            for wrapped in wrap_width(line, body):
+                out.append(indent + wrapped)
         reason = card.get('reason')
         if reason:
             lines = wrap_width(reason, body - 5)
@@ -633,9 +692,11 @@ def render_markdown(cards, meta):
         if AVAILABILITY.get(card.get('availability') or ''):
             bits.append(AVAILABILITY[card['availability']])
         lines.append('%s. **%s** · %s' % (card.get('rank') or '-', card['title'], ' · '.join(bits)))
-        overview = card.get('analysis') or card.get('overview')
+        overview = analysis_text(card)
         if overview:
             lines.append('   %s' % overview)
+        for reference in reference_text(card):
+            lines.append('   %s' % reference)
         if card.get('reason'):
             lines.append('   > 推荐理由：%s' % card['reason'])
         if card.get('brand_note'):
