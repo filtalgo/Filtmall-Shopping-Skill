@@ -82,7 +82,7 @@ references/protocol.md   # Control public session protocol
 scripts/service.py       # Entry point for single-call and persistent service modes
 scripts/client.py        # Identity, sessions, and request recovery
 scripts/cards.py         # Product card rendering
-scripts/region_lookup.py # Region lookup for the pre environment
+scripts/region_lookup.py # Region names to three-level IDs and address splitting; bundled pre directory
 data/regions-pre.json    # Region data snapshot for the pre environment
 agents/openai.yaml       # Host display metadata
 ```
