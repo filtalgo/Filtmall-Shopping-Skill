@@ -116,6 +116,13 @@ python3 "<skill-dir>/scripts/service.py" --format widget
  "out_dirs":{"fragment_path":"<宿主要求的绝对路径>/mask.html","answer_path":"<宿主要求的绝对路径>/answer.md"}}
 ```
 
+**Qoder 内联展示商品卡片**：使用 `widget`，并在请求中直接用 `out_dirs.fragment_path` 指定 Qoder 的 `visualizations/` 目录下的 HTML 文件完整路径；将占位符替换为该目录的实际绝对路径。服务会直接写入指定文件，宿主再使用返回的 `fragment_file` 内联展示，无需移动或改写产物。异步请求使用 `wait:false` 时，在取得最终结果的 `resume` 请求中同样传入该路径。指定路径允许覆盖已有文件，应为不同结果选择合适的文件名。
+
+```json
+{"op":"send","conversation":"<对话标识>","text":"推荐100元以内的面膜，只查询。","format":"widget",
+ "out_dirs":{"fragment_path":"<Qoder 的 visualizations 目录绝对路径>/products.html"}}
+```
+
 成功应答示例（默认 widget，应答返回产物路径）：
 
 ```json

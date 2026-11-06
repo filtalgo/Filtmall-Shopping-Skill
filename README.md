@@ -80,6 +80,15 @@ python3 "<skill-dir>/scripts/service.py" --once --format widget
 {"op":"send","conversation":"<对话标识>","text":"查看购物车","format":"md"}
 ```
 
+在 **Qoder** 中内联展示商品卡片时，使用 `widget`，并直接通过 `out_dirs.fragment_path` 将片段输出到 Qoder 的 `visualizations/` 目录下。将示例中的占位符替换为该目录的实际绝对路径，再用返回的 `fragment_file` 内联展示；异步调用时，在取得最终结果的 `resume` 请求中也要传入该路径。
+
+```json
+{"op":"send","conversation":"<对话标识>","text":"推荐100元以内的面膜，只查询。","format":"widget",
+ "out_dirs":{"fragment_path":"<Qoder 的 visualizations 目录绝对路径>/products.html"}}
+```
+
+指定路径的同名文件允许覆盖；需要保留不同轮次结果时，请使用不同文件名。
+
 网络中断或结果未知时，使用同一会话的 `resume` 核对原请求，不要自动重新提交。停止使用 `cancel`，清空会话使用 `clear`。完整请求、授权、地址和展示规则见 [SKILL.md](SKILL.md)。
 
 ## 用户控制与数据边界

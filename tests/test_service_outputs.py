@@ -29,7 +29,14 @@ class OutputTests(unittest.TestCase):
                     self.assertIn('推荐商品', product)
                     self.assertIn('&lt;script&gt; &amp; 面膜', cart_content)
                     self.assertNotIn('<script>', cart_content)
-                    self.assertIn('2 件，单价 9.5 元（未选）', cart_content)
+                    if fmt == 'md':
+                        self.assertIn('2 件，单价 9.5 元（未选）', cart_content)
+                    else:
+                        self.assertIn('class="fm-cart-root"', cart_content)
+                        self.assertIn('数量 2', cart_content)
+                        self.assertIn('单价 ¥9.5', cart_content)
+                        self.assertIn('未选', cart_content)
+                        self.assertNotIn('合计', cart_content)
                     if fmt == 'widget':
                         self.assertEqual(output['cart_fragment_file'], output['cart_file'])
                         self.assertNotIn('<!doctype', cart_content)
@@ -73,6 +80,17 @@ class OutputTests(unittest.TestCase):
             self.assertEqual(status, 'unavailable')
             self.assertIn('避免重复操作', content)
             self.assertNotIn('购物车为空', content)
+
+    def test_cart_card_uses_only_public_snapshot_fields(self):
+        cart = {'status': 'current', 'items': [{'sku_id': 's', 'title': '商品',
+                 'quantity': 1, 'checked': True}]}
+        _, content = service.render_cart(cart, 'widget')
+        self.assertIn('class="fm-tag checked">已选', content)
+        self.assertIn('数量 1', content)
+        self.assertNotIn('单价 ¥', content)
+        self.assertNotIn('合计', content)
+        self.assertNotIn('首单优惠', content)
+        self.assertNotIn('<button', content)
 
     def test_old_format_parameters_are_rejected(self):
         class Stub: pass

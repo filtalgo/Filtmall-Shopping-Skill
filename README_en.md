@@ -78,6 +78,15 @@ The format applies to product cards and carts; response text remains in `answer_
 {"op":"send","conversation":"<conversation-id>","text":"Show my cart","format":"md"}
 ```
 
+For inline product cards in **Qoder**, use `widget` and set `out_dirs.fragment_path` directly to an HTML file under Qoder's `visualizations/` directory. Replace the placeholder with that directory's actual absolute path, and display the returned `fragment_file` inline. For an asynchronous request, pass the same path to the `resume` request that retrieves the final result.
+
+```json
+{"op":"send","conversation":"<conversation-id>","text":"Recommend a face mask under 100 yuan, search only.","format":"widget",
+ "out_dirs":{"fragment_path":"<absolute-path-to-Qoder-visualizations>/products.html"}}
+```
+
+An explicitly specified path can overwrite an existing file; choose different filenames when retaining results from multiple turns.
+
 If the network is interrupted or the result is unknown, use `resume` within the same conversation to check the original request; do not automatically resubmit it. Use `cancel` to stop a request and `clear` to clear a conversation. See [SKILL.md](SKILL.md) for the complete request, authorization, address, and presentation rules.
 
 ## User Control and Data Boundaries
