@@ -22,6 +22,43 @@ def checkout(identifier='CS1'):
 
 
 class CommerceTests(unittest.TestCase):
+    def test_cart_navigation_and_checkout_title_in_every_format(self):
+        for fmt in ('widget', 'html', 'md'):
+            for items in ([], [{'sku_id': '1', 'quantity': 1, 'checked': True}]):
+                cart = {'status': 'current', 'items': items, 'cart_url': 'https://buyer.test/cart?channel=pc_web'}
+                _, content = commerce_render.render_cart(cart, fmt)
+                self.assertIn('打开购物车', content)
+                self.assertIn('https://buyer.test/cart?channel=pc_web', content)
+                cart['cart_url'] = 'javascript:alert(1)'
+                _, content = commerce_render.render_cart(cart, fmt)
+                self.assertNotIn('打开购物车', content)
+                self.assertNotIn('javascript:', content)
+            content, _ = commerce_render.render([checkout('cart_INTERNAL')], 'checkout', fmt, cards.ImageBudget())
+            self.assertNotIn('cart_INTERNAL', content)
+            self.assertIn('结算', content)
+
+    def test_shared_card_style_keeps_real_images_and_omits_unknown_checkout_breakdown(self):
+        document = checkout('cart_PRIVATE')
+        document['value']['items'][0]['thumbnail'] = 'https://img.test/mask.png'
+        document['value']['items'][0].pop('unit_price')
+        document['value']['amounts'] = {'total': {'currency': 'CNY', 'minor_units': '7890'}}
+        cart = {'status': 'current', 'items': [{'sku_id': '1', 'title': '面膜', 'quantity': 1,
+                'checked': True, 'thumbnail': 'https://img.test/mask.png'}]}
+        for fmt in ('widget', 'html', 'md'):
+            with patch.object(cards, 'thumbnail_data', return_value=(b'image', 'image/png')):
+                content, _ = commerce_render.render([document], 'checkout', fmt, cards.ImageBudget())
+                _, cart_content = commerce_render.render_cart(cart, fmt)
+            self.assertIn('78.90', content)
+            for missing in ('商品金额', '优惠', '运费', '价格待确认', 'cart_PRIVATE'):
+                self.assertNotIn(missing, content)
+            if fmt != 'md':
+                for markup in ('<article class="fm-commerce">', 'class="product"', 'class="thumb"', 'data:image/png;base64,'):
+                    self.assertIn(markup, content)
+                    self.assertIn(markup, cart_content)
+            else:
+                self.assertNotIn('<article', content)
+        self.assertEqual(document['value']['items'][0]['thumbnail'], 'https://img.test/mask.png')
+
     def test_terminal_checkout_keeps_payment_fact_without_payment_action_or_body_fallback(self):
         for state in ('canceled', 'cancelled', 'completed'):
             for fmt in ('widget', 'html', 'md'):
@@ -68,8 +105,10 @@ class CommerceTests(unittest.TestCase):
                 self.assertNotIn('answer_file', output)
                 content = Path(output['checkout_file']).read_text()
                 sale = Path(output['after_sale_file']).read_text()
-                for text in ('结算 · CS1', '结算 · CS2', '149.00', '0.00', '待付款'):
+                for text in ('结算', '149.00', '0.00', '待付款'):
                     self.assertIn(text, content)
+                self.assertNotIn('CS1', content)
+                self.assertNotIn('CS2', content)
                 self.assertNotIn('<script>', content)
                 self.assertIn('实际到账', sale)
                 self.assertIn('尚未确认', sale)

@@ -7,12 +7,12 @@ import cards
 
 STYLE = '''<style>
 .fm-commerce{--fg:var(--color-text-primary,#2a2724);--fg-2:var(--color-text-secondary,#6f6a63);--fg-3:var(--color-text-secondary,#8f897f);--line:var(--color-border-tertiary,#e4dfd7);--line-soft:var(--color-border-tertiary,#f0ebe4);--fill:var(--color-background-secondary,#f8f5f1);--skin:var(--color-background-secondary,#f4f0ec);--surface:var(--color-background-primary,#fff);--accent:#3c6470;--accent-bg:#edf3f4;--accent-line:#cfdde0;--warn:#7d5c2c;--warn-bg:#fbf6ea;--warn-line:#ebe0c4;display:block;max-width:560px;margin:0 0 12px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;font:14px/1.6 var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.fm-commerce *{box-sizing:border-box}.fm-commerce a{color:inherit;text-decoration:none}.fm-commerce a:focus-visible,.fm-commerce summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fm-commerce *{box-sizing:border-box}.fm-commerce p{margin:8px 0}.fm-commerce a{color:inherit;text-decoration:none}.fm-commerce a:focus-visible,.fm-commerce summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .fm-commerce .hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px 12px}.fm-commerce h2{margin:0;font-size:15px;line-height:1.35;font-weight:600}.fm-commerce .meta{font-size:12px;color:var(--fg-3)}
 .fm-commerce .status{font-size:12px;line-height:1.4;color:var(--accent);background:var(--accent-bg);border:1px solid var(--accent-line);border-radius:999px;padding:2px 9px}
-.fm-commerce .body{padding:2px 16px 12px}.fm-commerce .product{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line-soft)}.fm-commerce .product:first-child{border-top:0}.fm-commerce .thumb{width:40px;height:48px;border-radius:6px;background:var(--skin);display:grid;place-items:center;overflow:hidden;font-size:11px;color:var(--fg-3)}.fm-commerce .thumb img{width:100%;height:100%;object-fit:cover}.fm-commerce .product b{font-size:13px;font-weight:600;line-height:1.45}.fm-commerce .price{font-size:13px;color:var(--fg-2)}
+.fm-commerce .body{padding:2px 16px 12px}.fm-commerce .product{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line-soft)}.fm-commerce .product:first-child{border-top:0}.fm-commerce .thumb{width:40px;height:48px;border-radius:6px;background:var(--skin);display:grid;place-items:center;overflow:hidden;font-size:11px;color:var(--fg-3)}.fm-commerce .thumb img{display:block;width:100%;height:100%;object-fit:contain}.fm-commerce .product b{display:block;font-size:13px;font-weight:600;line-height:1.45}.fm-commerce .price{font-size:13px;color:var(--fg-2);white-space:nowrap}
 .fm-commerce .sub{font-size:12px;color:var(--fg-3)}.fm-commerce .h3{margin:14px 0 8px;font-size:12px;color:var(--fg-2)}.fm-commerce .fees{border-top:1px solid var(--line-soft)}.fm-commerce .line{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:13px;color:var(--fg-2)}.fm-commerce .line.sum{border-top:1px solid var(--line);margin-top:4px;padding-top:11px;color:var(--fg)}.fm-commerce .sum b:last-child{font-size:22px;font-weight:600}
-.fm-commerce .note{margin:12px 0 2px;padding:9px 12px;border-radius:6px;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn);font-size:12px}.fm-commerce .foot{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--line-soft);background:var(--fill)}.fm-commerce .button{padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:12px}.fm-commerce .button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.fm-commerce .note{margin:12px 0 2px;padding:9px 12px;border-radius:6px;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn);font-size:12px}.fm-commerce .foot{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--line-soft);background:var(--fill)}.fm-commerce .button{display:inline-flex;align-items:center;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:12px;line-height:1.4}.fm-commerce .button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .fm-commerce .event{padding:2px 0 14px 18px;border-left:1px solid var(--line);font-size:13px}.fm-commerce details{border-top:1px solid var(--line-soft);padding:10px 0 2px}.fm-commerce summary{cursor:pointer;font-size:12px;color:var(--fg-2)}
 @media(prefers-color-scheme:dark){.fm-commerce{--fg:var(--color-text-primary,#e8e3db);--fg-2:var(--color-text-secondary,#aaa399);--fg-3:var(--color-text-secondary,#8c867d);--line:var(--color-border-tertiary,#3b3733);--line-soft:var(--color-border-tertiary,#322e2b);--fill:var(--color-background-secondary,#2e2a27);--skin:var(--color-background-secondary,#37322e);--surface:var(--color-background-primary,#252220);--accent:#9fc2ca;--accent-bg:#26343a;--accent-line:#38505a;--warn:#dcc28f;--warn-bg:#332c1f;--warn-line:#4a3f2a}.fm-commerce .button.primary{color:#1d2528}}
 </style>'''
@@ -73,9 +73,11 @@ def product_rows(items, fmt, budget, cart=False):
         bits = ([('已选' if item.get('checked') else '未选')] if cart else [])
         if item.get('spec'): bits.append(clean(item['spec']))
         if quantity is not None: bits.append('数量 %s' % quantity)
-        bits.append('单价 ' + price if price else '价格待确认')
+        if price or cart:
+            bits.append('单价 ' + price if price else '价格待确认')
         image = '<img src="%s" alt="">' % escape(images[i]['thumbnail']) if images[i].get('thumbnail') and fmt != 'md' else '暂无图'
-        rows.append('<div class="product"><div class="thumb" aria-hidden="true">%s</div><div><b>%s</b><div class="sub">%s</div></div><span class="price">%s</span></div>' % (image, escape(title), escape(' · '.join(bits)), price or '待确认'))
+        price_html = '<span class="price">%s</span>' % (price or '待确认') if price or cart else ''
+        rows.append('<div class="product"><div class="thumb" aria-hidden="true">%s</div><div><b>%s</b><div class="sub">%s</div></div>%s</div>' % (image, escape(title), escape(' · '.join(bits)), price_html))
         lines.append('- %s：%s' % (md(title), md(' · '.join(bits))))
     body = ''.join(rows[:3])
     if len(rows) > 3:
@@ -86,7 +88,7 @@ def product_rows(items, fmt, budget, cart=False):
 def navigation(links):
     result = []
     for link in links if isinstance(links, list) else []:
-        if not isinstance(link, dict) or link.get('rel') not in ('payment', 'checkout', 'after_sale'):
+        if not isinstance(link, dict) or link.get('rel') not in ('payment', 'checkout', 'after_sale', 'cart'):
             continue
         href = clean(link.get('href'))
         try:
@@ -96,7 +98,7 @@ def navigation(links):
             url.port
         except ValueError:
             continue
-        result.append(({'payment': '打开收银台', 'checkout': '查看结算', 'after_sale': '打开售后详情'}[link['rel']], href, link['rel']))
+        result.append(({'payment': '打开收银台', 'checkout': '查看结算', 'after_sale': '打开售后详情', 'cart': '打开购物车'}[link['rel']], href, link['rel']))
     return result
 
 
@@ -105,7 +107,7 @@ def render_documents(documents, kind, fmt, budget):
     for document in documents:
         value = document.get('value') if isinstance(document, dict) else None
         value = value if isinstance(value, dict) else {}
-        title = ('结算 · ' + clean(value['checkout_id'])) if kind == 'checkout' and clean(value.get('checkout_id')) else '结算预览' if kind == 'checkout' and value.get('mode') == 'preview' else '结算' if kind == 'checkout' else '售后列表' if kind == 'after_sale_list' else '售后详情'
+        title = '结算' if kind == 'checkout' else '售后列表' if kind == 'after_sale_list' else '售后详情'
         if value.get('status') != 'current':
             message = '状态暂不可用。操作可能已生效，请先查询确认，避免重复操作。'
             bodies.append(card(title, '待核实', '<p>%s</p>' % message))
@@ -133,7 +135,7 @@ def render_documents(documents, kind, fmt, budget):
             payment = {'paid': '已付款', 'unpaid': '待付款', 'cancelled': '已取消', 'refunded': '已退款'}.get(value.get('payment_status'), '支付待核实')
             state = '预览' if value.get('mode') == 'preview' else payment
             amounts = value.get('amounts') if isinstance(value.get('amounts'), dict) else {}
-            fees = [(label, money(amounts.get(key)) or '待确认', key == 'total') for key, label in (('goods', '商品金额'), ('discount', '优惠'), ('shipping', '运费'), ('total', '应付金额'))]
+            fees = [(label, money(amounts.get(key)) or '待确认', key == 'total') for key, label in (('goods', '商品金额'), ('discount', '优惠'), ('shipping', '运费'), ('total', '应付金额')) if key == 'total' or money(amounts.get(key)) is not None]
             if value.get('checkout_status'):
                 checkout_state = {'not_ready_for_payment': '信息待完善', 'ready_for_payment': '可提交结算',
                                   'in_progress': '处理中', 'completed': '结算已完成', 'canceled': '已取消',
@@ -170,7 +172,11 @@ def render_documents(documents, kind, fmt, budget):
                         log_body += '<div class="event">%s</div>' % escape(event)
                         log_lines.append('- ' + md(event))
             note = ' '.join(clean(v) for v in value.get('next_actions', []) if isinstance(v, str)) if isinstance(value.get('next_actions'), list) else ''
-        body += '<div class="fees">' + ''.join('<div class="line%s"><b>%s</b><b>%s</b></div>' % (' sum' if total else '', label, amount) for label, amount, total in fees) + '</div>'
+        fee_rows = []
+        for label, amount, total in fees:
+            tag = 'b' if total else 'span'
+            fee_rows.append('<div class="line%s"><%s>%s</%s><%s>%s</%s></div>' % (' sum' if total else '', tag, label, tag, tag, amount, tag))
+        body += '<div class="fees">' + ''.join(fee_rows) + '</div>'
         lines.extend('%s：%s' % (label, amount) for label, amount, _ in fees)
         body += log_body
         lines.extend(log_lines)
@@ -215,7 +221,10 @@ def render_cart(value, fmt='md', budget=None):
             selected = [i for i in items if i['checked']]
             summary = '已选 %s 款 / %s 件 · 全车 %s 款 · %s 件' % (len(selected), sum(i['quantity'] for i in selected), len(items), sum(i['quantity'] for i in items))
             rows, lines = product_rows(items, fmt, budget, cart=True)
-            body = '<div class="fees"><div class="line">%s</div></div>' % summary + rows
+            body = '<div class="fees"><div class="line"><b>已选 %s 款 / %s 件</b><span class="sub">全车 %s 款 · %s 件</span></div></div>' % (len(selected), sum(i['quantity'] for i in selected), len(items), sum(i['quantity'] for i in items)) + rows
             markdown = '## 购物车\n\n%s\n\n%s\n' % (summary, '\n'.join(lines))
-    fragment = STYLE + card('购物车', '' if valid else '待核实', body)
+    links = navigation([{'rel': 'cart', 'href': value.get('cart_url')}]) if valid else []
+    footer = ''.join('<a class="button" href="%s" target="_blank" rel="noopener noreferrer">%s ↗</a>' % (escape(url), label) for label, url, _ in links)
+    markdown += ''.join('\n[%s](%s)\n' % (label, quote(url, safe=':/?=&%#@+;,~')) for label, url, _ in links)
+    fragment = STYLE + card('购物车', '' if valid else '待核实', body, footer)
     return status, markdown if fmt == 'md' else page(fragment, '购物车') if fmt == 'html' else fragment
