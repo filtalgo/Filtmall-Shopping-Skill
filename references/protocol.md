@@ -52,6 +52,18 @@ Authorization: Bearer <平台访客 token>
 
 兼容已部署的 Shopping 扩展：若 completed 的 `request.status.answer_document_id` 为空，客户端仅聚合**本轮提交前 revision 之后**的 schema1 `filtalgo.shopping.text`，标为 `source="current-turn-public-text"`。不会使用 activity 进度、旧轮次文本、用户消息或 deleted 文档；显式指向非法答复的引用也不会触发此回退。提交前的 revision 与请求 ID 一起私有保存，恢复不会改变边界。`waiting` 时仅消费本轮 revision 之后且请求 ID 匹配或为空的会员授权文档，通过 Control 设备授权接口获取用户验证链接，并在私有状态中保存 state 和加密 exchange；这些数据不输出。用户发送下一条消息时调用 device/poll 一次（遵守间隔），授权成功后才提交新消息。
 
+## 商城业务文档 v1
+
+`filtalgo.commerce.checkout`、`filtalgo.commerce.after_sale`、`filtalgo.commerce.after_sale_list` 都通过已有 documents API 传输，不访问内部工具结果。按 `document_id` 取本轮最高 revision，再按 `display_order` 展示；要求 request_id 匹配或为空，revision 严格大于原请求 start_revision。删除不展示；最高版本 unavailable 或未知 schema 时降级，不能恢复较旧成功版本。cursor 重置及完整快照回退也保持原边界。无该类本轮文档就无相应产物。
+
+- 共同字段：`status=current|unavailable`；成功读回含 `observed_at`。金额为 `{currency, minor_units: string}`，只支持已核实两位小数的 CNY/USD/EUR/GBP，不将缺省值补零；没有可靠金额就待确认。
+- Checkout：`mode=preview|session`，真实 `checkout_id`、`checkout_status`、独立 `payment_status=paid|unpaid|cancelled|refunded|unknown`，`items`、`amounts`（goods/discount/shipping/total）、`links`。不通过会话 completed、payment_action 或正文推断付款。预览元金额与 session 分金额由生产者归一。
+- After sale：`after_sale_id`、`service_type`、`service_status`、可选状态标签、商品、`requested_refund`、可选非零 `refund_amount`、真实日志及 `next_actions`、地址可用标记和后端导航；不持久化完整地址/电话/银行账号。`refund_amount` 不是银行到账证据，COMPLETE/PASS/WAIT_REFUND 不自动表示到账。
+- List：`records` 与本次查询的 `page.current/size/total`，不声称返回全集。空页与 unavailable 分开；列表及详情可以同时展示。
+- 商品行仅含 SKU、标题、规格、数量、单价和安全缩略图。导航仅来自明确的业务返回槽位，HTTPS 且无凭据，白名单 rel 为 payment/checkout/after_sale；不构造路径、拼接参数或发布 pay_info/authentication/Raw/token。
+
+客户端内部结果用 `checkouts` / `after_sales` / `after_sale_lists` 保存文档及版本元数据。service 唯一入口只输出私有本地文件路径，不输出原始投影；三种格式事实一致。输出 `checkout_file` / `after_sale_file` 及对应 format 的 fragment/page 别名，md 无 HTML 别名。`checkout_count` / `after_sale_count` 是文档数；业务总数只读列表 page。请求新增 checkout_path/after_sale_path，支持 out_dirs。所有目标不同；文件成功落盘才返回路径，单类失败不丢其他文件。展示失败使用原请求 resume，不 send 写操作。
+
 ## 恢复、停止与清空
 
 - 恢复时先查原请求结果；明确 404 才可以按相同 ID、相同载荷提交。网络错误不等于 404，不做自动重发。

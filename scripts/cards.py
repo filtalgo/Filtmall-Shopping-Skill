@@ -9,6 +9,8 @@ import base64
 import html
 import re
 import sys
+import time
+import threading
 import unicodedata
 import urllib.request
 import urllib.parse
@@ -340,6 +342,7 @@ def image_dimensions(data):
 
 def thumbnail_data(url, timeout):
     """通过商品图片源生成缩略图，并校验尺寸和大小。"""
+    deadline = time.monotonic() + max(0, timeout)
     def valid(data, expected=None):
         kind = image_type(data, None)
         dimensions = image_dimensions(data)
@@ -374,10 +377,21 @@ def thumbnail_data(url, timeout):
         urls = [url]  # 保留签名及其他参数，不修改已有语义。
     opener = urllib.request.build_opener(NoRedirect())
     for candidate in urls:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         try:
             req = urllib.request.Request(candidate, headers={'User-Agent': 'filtalgo-render-cards/1'})
-            with opener.open(req, timeout=timeout) as response:
-                data = response.read(IMAGE_MAX_BYTES + 1)
+            with opener.open(req, timeout=remaining) as response:
+                data = bytearray()
+                while len(data) <= IMAGE_MAX_BYTES and time.monotonic() < deadline:
+                    chunk = response.read1(min(4096, IMAGE_MAX_BYTES + 1 - len(data)))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                if time.monotonic() >= deadline:
+                    return None
+                data = bytes(data)
             image = valid(data)
             if image:
                 return image
@@ -386,14 +400,45 @@ def thumbnail_data(url, timeout):
     return None
 
 
-def inline_images(cards, timeout):
+class ImageBudget:
+    """One render turn shares a deadline, URL cache and finite embedded byte budget."""
+    def __init__(self, seconds=5, max_bytes=512 * 1024):
+        self.deadline = time.monotonic() + seconds
+        self.remaining_bytes = max_bytes
+        self.cache = {}
+
+
+def inline_images(cards, timeout, budget=None):
     """将图片压缩并嵌入卡片，不创建图片文件。"""
+    budget = budget or ImageBudget(timeout)
     for card in cards:
         thumb = card.get('thumbnail')
         if not thumb:
             continue
-        image = thumbnail_data(thumb, timeout)
-        card['thumbnail'] = ('data:%s;base64,%s' % (image[1], base64.b64encode(image[0]).decode('ascii'))) if image else ''
+        if thumb not in budget.cache:
+            remaining = min(timeout, budget.deadline - time.monotonic())
+            image = None
+            if remaining > 0 and budget.remaining_bytes > 0:
+                box = {}
+                def download(url=thumb, seconds=remaining, output=box):
+                    try:
+                        output['image'] = thumbnail_data(url, seconds)
+                    except Exception:
+                        output['image'] = None
+                # urllib's socket timeout is per blocking read, not a wall-clock
+                # deadline (DNS and slowly arriving bodies can exceed it).
+                # Never hold the caller beyond the shared render deadline.
+                worker = threading.Thread(target=download, daemon=True)
+                worker.start()
+                worker.join(max(0, min(remaining, budget.deadline - time.monotonic())))
+                if not worker.is_alive():
+                    image = box.get('image')
+            budget.cache[thumb] = ('data:%s;base64,%s' % (image[1], base64.b64encode(image[0]).decode('ascii'))) if image else ''
+        embedded = budget.cache[thumb]
+        if len(embedded) > budget.remaining_bytes:
+            embedded = ''
+        budget.remaining_bytes -= len(embedded)
+        card['thumbnail'] = embedded
 
 
 def render_widget(cards, meta, theme, images=True):

@@ -8,6 +8,8 @@ Filtmall Shopping is Filtalgo's hosted shopping Agent Skill. Users can describe 
 
 This package uses the **production environment** by default. Member operations require separate authorization, and order submission and payment require user confirmation.
 
+The package version on `main` is **2.1.0 (unreleased)**. A published release must use the same version as `metadata.version` in `SKILL.md`, with a `v` prefix on its GitHub tag. This update changes source files only; existing releases and historical tags remain unchanged.
+
 ## Installation
 
 Copy this entire directory into your host's Skill directory under the name `filtmall-shopping`. Python 3.10 or later is required. No additional dependencies, channel AK/SK credentials, or SSH configuration are needed. The client requests a guest identity and stores it privately.
@@ -72,7 +74,13 @@ The host should generate a separate identifier for each user and conversation, a
 | Open a standalone page in a browser or WebView | `"format":"html"` | `page_file`, a complete HTML page | `cart_page_file`, a complete HTML page |
 | Display Markdown or text | `"format":"md"` | `html_file`, a `.cards.md` file | `cart_file`, a `.cart.md` file |
 
-The format applies to product cards and carts; response text remains in `answer_file`. The standalone product page contains this turn's cards; their product links lead to the actual store pages. Inline product images require host support for `data:` images. The `--format` startup option sets the default, while a request's `format` overrides it. For example:
+The format applies to products, carts, checkouts, and after-sales results; response text remains in `answer_file`. Checkout results use `checkout_file`, and after-sales results use `after_sale_file`. In `widget` mode, the corresponding aliases are `checkout_fragment_file` and `after_sale_fragment_file`; in `html` mode, they are `checkout_page_file` and `after_sale_page_file`. In `md` mode, read the respective Markdown files directly. Business documents can produce files without response text, and multiple objects share the corresponding business file. Only documents from the current turn are used. Standalone pages use the same cards as inline fragments, without an extra page heading or status sidebar.
+
+Set `checkout_path` and `after_sale_path` directly or through `out_dirs` to choose output paths. Different artifacts must use different paths. Default filenames are unique per turn, and custom paths are replaced atomically. If `presentation_status=failed`, retain successful files and recover rendering through `resume` in the same conversation; do not repeat the business write. Payment preparation does not prove payment, and a refund amount does not prove receipt. Completed or cancelled checkouts do not show payment prompts or payment links; available detail links and explicit payment facts remain visible.
+
+Cart cards show selected and total product/quantity counts, formatted unit prices, and missing-price notices. HTML folds rows after the first three while retaining all rows; Markdown includes every row. Images share a bounded turn budget and reuse duplicate URLs. Product links still lead to actual store pages. Inline images require host support for `data:` images.
+
+The `--format` startup option sets the default, while a request's `format` overrides it. For example:
 
 ```json
 {"op":"send","conversation":"<conversation-id>","text":"Show my cart","format":"md"}
@@ -105,6 +113,7 @@ references/protocol.md   # Control public session protocol
 scripts/service.py       # Entry point for single-call and persistent service modes
 scripts/client.py        # Identity, sessions, and request recovery
 scripts/cards.py         # Product card rendering
+scripts/commerce_render.py # Cart, checkout, and after-sales rendering
 scripts/region_lookup.py # Region lookup for the pre environment
 data/regions-pre.json    # Region data snapshot for the pre environment
 agents/openai.yaml       # Host display metadata

@@ -17,6 +17,7 @@ import hashlib
 import html
 import json
 import os
+import tempfile
 import math
 import re
 import sys
@@ -31,6 +32,7 @@ sys.path.insert(0, str(SKILL_DIR / 'scripts'))
 
 import cards  # noqa: E402
 import client  # noqa: E402
+import commerce_render  # noqa: E402
 
 ClientError = client.ClientError
 
@@ -38,7 +40,7 @@ PROTOCOL = 1
 FORMATS = ('widget', 'html', 'md')
 OPS = ('send', 'resume', 'cancel', 'clear', 'auth-reset', 'status', 'ping')
 # 请求里可对单个产物指定完整文件路径，覆盖默认目录命名。
-OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path', 'cart_path')
+OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path', 'cart_path', 'checkout_path', 'after_sale_path')
 
 
 def state_directory(args):
@@ -113,27 +115,6 @@ def answer_text(result):
 URL_PATTERN = re.compile(r'https://[^\s<>"\'）)】\]，。；、]+')
 PAYMENT_URL_HINT = re.compile(r'cashier|payment|pay|收银台|支付', re.IGNORECASE)
 
-CART_STYLE = '''<style>
-.fm-cart-root{--fm-fg:var(--color-text-primary,#111);--fm-muted:var(--color-text-secondary,#6b6b66);--fm-line:var(--color-border-tertiary,rgba(0,0,0,.14));--fm-surface:var(--color-background-primary,#fff);--fm-surface2:var(--color-background-secondary,#f6f6f3);--fm-accent:#A32D2D;--fm-accent-bg:#FCEBEB;font-family:var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif);color:var(--fm-fg)}
-.fm-cart-root *{box-sizing:border-box}
-.fm-cart-root .fm-hd{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
-.fm-cart-root .fm-hd h2{font-size:15px;line-height:1.3;font-weight:600;margin:0}
-.fm-cart-root .fm-hd span{font-size:12px;color:var(--fm-muted)}
-.fm-cart-root .fm-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.fm-cart-root .fm-item{display:flex;align-items:center;gap:12px;padding:12px;border:.5px solid var(--fm-line);border-radius:12px;background:var(--fm-surface)}
-.fm-cart-root .fm-thumb{width:52px;height:52px;flex:0 0 52px;border-radius:8px;background:var(--fm-surface2);display:flex;align-items:center;justify-content:center;font-size:20px}
-.fm-cart-root .fm-thumb img{width:100%;height:100%;object-fit:cover;border-radius:8px}
-.fm-cart-root .fm-info{min-width:0;flex:1 1 auto}
-.fm-cart-root .fm-name{font-size:13px;line-height:1.45;font-weight:500;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.fm-cart-root .fm-meta{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
-.fm-cart-root .fm-tag{font-size:11px;line-height:1;padding:4px 6px;border-radius:4px;background:var(--fm-surface2);color:var(--fm-muted)}
-.fm-cart-root .fm-tag.checked{background:var(--fm-accent-bg);color:var(--fm-accent)}
-.fm-cart-root .fm-price{font-size:13px;color:var(--fm-accent);font-weight:500;white-space:nowrap}
-.fm-cart-root .fm-sub{margin-top:6px;font-size:12px;color:var(--fm-muted)}
-.fm-cart-root .fm-qty{display:inline-block;border:.5px solid var(--fm-line);border-radius:999px;padding:3px 10px;color:var(--fm-fg)}
-.fm-cart-root .fm-message{font-size:13px;line-height:1.5;color:var(--fm-muted);margin:0}
-@media (prefers-color-scheme:dark){.fm-cart-root{--fm-accent:#F09595;--fm-accent-bg:#501313}}
-</style>'''
 
 
 def extract_payment_links(answer):
@@ -146,61 +127,8 @@ def extract_payment_links(answer):
     return links
 
 
-def render_cart(value, fmt='md'):
-    """Render only the public cart projection; malformed snapshots stay unavailable."""
-    unavailable = '购物车状态正在更新或暂不可用。操作可能已生效，请先查询确认，避免重复操作。\n'
-    def output(status, markdown, body):
-        if fmt not in ('widget', 'html'):
-            return status, markdown
-        fragment = CART_STYLE + '<section class="fm-cart-root">%s</section>' % body
-        return status, html_page(fragment, '购物车') if fmt == 'html' else fragment
+render_cart = commerce_render.render_cart
 
-    def failed():
-        return output('unavailable', unavailable, '<div class="fm-hd"><h2>购物车</h2></div><p class="fm-message">%s</p>' % html.escape(unavailable.strip()))
-
-    if not isinstance(value, dict) or value.get('status') != 'current':
-        return failed()
-    items = value.get('items')
-    if not isinstance(items, list) or len(items) > 500:
-        return failed()
-    for item in items:
-        if (not isinstance(item, dict) or not isinstance(item.get('sku_id'), str) or not item['sku_id']
-                or type(item.get('quantity')) is not int or not 0 <= item['quantity'] <= 9007199254740991
-                or type(item.get('checked')) is not bool):
-            return failed()
-    images = []
-    if fmt in ('widget', 'html'):
-        for item in items:
-            url = item.get('thumbnail')
-            images.append({'thumbnail': url if isinstance(url, str) and len(url) <= 2048
-                           and url.startswith('https://') and not re.search(r'[\x00-\x20\x7f]', url) else ''})
-        cards.inline_images(images, 10)
-    lines, html_lines = [], []
-    for index, item in enumerate(items):
-        title = item.get('title')
-        if not isinstance(title, str) or not title.strip():
-            title = '商品'
-        title = re.sub(r'[\x00-\x1f\x7f]+', ' ', title).strip()
-        escaped_title = html.escape(title, quote=True)
-        title = re.sub(r'([\\`*_{}\[\]()#+.!|~\-])', r'\\\1', escaped_title)
-        price = item.get('price')
-        valid_price = (type(price) in (int, float) and 0 <= price <= 1e308
-                       and (type(price) is int or math.isfinite(price)))
-        price_text = '，单价 %s 元' % price if valid_price else ''
-        lines.append('- %s：%s 件%s（%s）' % (title, item['quantity'], price_text, '已选' if item['checked'] else '未选'))
-        state = '已选' if item['checked'] else '未选'
-        price_html = '<span class="fm-price">单价 ¥%s</span>' % html.escape(str(price)) if valid_price else ''
-        thumbnail = images[index].get('thumbnail') if images else ''
-        image_html = '<img src="%s" alt="">' % html.escape(thumbnail, quote=True) if thumbnail else '🛍️'
-        html_lines.append('<li class="fm-item"><div class="fm-thumb" aria-hidden="true">%s</div>'
-                          '<div class="fm-info"><p class="fm-name">%s</p><div class="fm-meta">'
-                          '<span class="fm-tag%s">%s</span>%s</div>'
-                          '<div class="fm-sub"><span class="fm-qty">数量 %s</span></div></div></li>'
-                          % (image_html, escaped_title, ' checked' if item['checked'] else '', state, price_html, item['quantity']))
-    markdown = ('购物车：\n\n' + '\n'.join(lines) + '\n') if lines else '购物车为空。\n'
-    header = '<div class="fm-hd"><h2>购物车</h2><span>%s 款商品</span></div>' % len(items)
-    body = header + ('<ul class="fm-list">%s</ul>' % ''.join(html_lines) if lines else '<p class="fm-message">购物车为空。</p>')
-    return output('current', markdown, body)
 
 
 def html_page(fragment, title):
@@ -208,31 +136,62 @@ def html_page(fragment, title):
 
 
 def render(result, fmt, max_cards, all_cards=False):
-    out = {'answer': answer_text(result), '_format': fmt}
+    budget = cards.ImageBudget()
+    out = {'answer': answer_text(result), '_format': fmt, '_image_budget': budget}
     if 'cart' in result:
-        out['cart_status'], out['cart_content'] = render_cart(result['cart'], fmt)
-    items = cards.collect(result, cards.DEFAULT_URL_BASE)
-    cards.attach_answer_reasons(items, out['answer'])
-    cards.attach_answer_analysis(items, out['answer'])
-    if not all_cards and out['answer']:
-        kept = [c for c in items if cards.referenced(c, out['answer'])]
-        items = kept
-    if max_cards and max_cards > 0:
-        items = items[:max_cards]
-    out['card_count'] = len(items)
-    if not items:
-        return out
-    meta = {'title': '', 'footer': ''}
-    if fmt in ('widget', 'html'):
-        out['widget_cards'] = items
-        out['product_links'] = [{'title': item['title'], 'url': item['url']} for item in items if item.get('url')]
-    elif fmt == 'md':
-        out['cards_markdown'] = cards.render_markdown(items, meta)
+        try:
+            out['cart_status'], out['cart_content'] = render_cart(result['cart'], fmt, budget)
+        except Exception:
+            out['presentation_status'] = 'failed'
+            out['presentation_errors'] = ['cart_render_failed']
+    for field, kinds in (('checkout', [('checkouts', 'checkout')]),
+                         ('after_sale', [('after_sales', 'after_sale'), ('after_sale_lists', 'after_sale_list')])):
+        documents = [(result.get(key) or [], kind) for key, kind in kinds]
+        if not any(docs for docs, _ in documents):
+            continue
+        try:
+            content, links = [], []
+            ordered = [(document, kind) for docs, kind in documents for document in docs]
+            ordered.sort(key=lambda pair: (pair[0].get('display_order', 0), pair[0].get('revision', 0)))
+            for document, kind in ordered:
+                rendered, navigation = commerce_render.render([document], kind, 'widget' if fmt == 'html' else fmt, budget)
+                content.append(rendered); links.extend(navigation)
+            combined = '\n'.join(content)
+            out[field + '_content'] = html_page(combined, '结算' if field == 'checkout' else '售后') if fmt == 'html' else combined
+            out[field + '_count'] = sum(len(docs) for docs, _ in documents)
+            if field == 'checkout':
+                out['payment_links'] = list(dict.fromkeys(url for _, url, rel in links if rel == 'payment'))
+        except Exception:
+            out['presentation_status'] = 'failed'
+            out.setdefault('presentation_errors', []).append(field + '_render_failed')
+    try:
+        items = cards.collect(result, cards.DEFAULT_URL_BASE)
+        cards.attach_answer_reasons(items, out['answer'])
+        cards.attach_answer_analysis(items, out['answer'])
+        if not all_cards and out['answer']:
+            kept = [c for c in items if cards.referenced(c, out['answer'])]
+            items = kept
+        if max_cards and max_cards > 0:
+            items = items[:max_cards]
+        out['card_count'] = len(items)
+        if not items:
+            return out
+        meta = {'title': '', 'footer': ''}
+        if fmt in ('widget', 'html'):
+            out['widget_cards'] = items
+            out['product_links'] = [{'title': item['title'], 'url': item['url']} for item in items if item.get('url')]
+        elif fmt == 'md':
+            out['cards_markdown'] = cards.render_markdown(items, meta)
+    except Exception:
+        out['card_count'] = 0
+        out['presentation_status'] = 'failed'
+        out.setdefault('presentation_errors', []).append('product_render_failed')
     return out
 
 
 def write_outputs(payload, request, default_out_dir):
     """按所选格式保存商品和购物车产物，正文单独保存。"""
+    started = time.monotonic()
     conversation = request['conversation']
     directory = Path(request.get('out_dir') or default_out_dir or Path.home() / '.local/state/filtalgo-agent/output')
     directory = directory / hashlib.sha256(conversation.encode()).hexdigest()[:16]
@@ -244,56 +203,83 @@ def write_outputs(payload, request, default_out_dir):
         target.parent.mkdir(parents=True, exist_ok=True)
         if os.name != 'nt':
             target.parent.chmod(0o700)
-        # 调用方明确指定路径时允许覆盖同名文件，默认命名仍是只新建。
-        flags = os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if target in overwritable else os.O_EXCL)
-        fd = os.open(target, flags, 0o600)
-        with os.fdopen(fd, 'w', encoding='utf8') as stream:
-            stream.write(content)
+        fd, temporary = tempfile.mkstemp(dir=target.parent, prefix='.commerce-')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf8') as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if target in overwritable:
+                os.replace(temporary, target)
+            else:
+                # Atomic create without silently overwriting another turn.
+                os.link(temporary, target)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
     overwritable = {Path(value).expanduser().resolve() for value in custom.values()}
     stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex
     def target_path(key, suffix):
         if key in custom:
             return Path(custom[key]).expanduser().resolve()
-        if not directory.exists():
-            directory.mkdir(parents=True, exist_ok=True)
-            if os.name != 'nt':
-                directory.chmod(0o700)
         return directory / ('turn-%s.%s' % (stamp, suffix))
     answer = payload.pop('answer', '')
     fmt = payload.pop('_format', 'widget')
-    if 'cart_content' in payload:
-        target = target_path('cart_path', 'cart.html' if fmt in ('widget', 'html') else 'cart.md')
-        private_write(target, payload.pop('cart_content'))
-        payload['cart_file'] = str(target)
-        if fmt == 'widget': payload['cart_fragment_file'] = str(target)
-        if fmt == 'html': payload['cart_page_file'] = str(target)
+    budget = payload.pop('_image_budget', None)
+    def save(target, content):
+        try:
+            private_write(target, content)
+            return True
+        except OSError:
+            payload['presentation_status'] = 'failed'
+            payload.setdefault('presentation_errors', []).append('output_write_failed')
+            return False
+    for field in ('cart', 'checkout', 'after_sale'):
+        if field + '_content' not in payload:
+            continue
+        target = target_path(field + '_path', field.replace('_', '-') + ('.html' if fmt in ('widget', 'html') else '.md'))
+        if save(target, payload.pop(field + '_content')):
+            payload[field + '_file'] = str(target)
+            if fmt == 'widget': payload[field + '_fragment_file'] = str(target)
+            if fmt == 'html': payload[field + '_page_file'] = str(target)
     if 'widget_cards' in payload:
         items = payload.pop('widget_cards')
-        cards.inline_images(items, 10)
-        payload['cards_html'] = cards.render_widget(items, {'title': '', 'footer': ''}, 'auto')
+        try:
+            cards.inline_images(items, 5, budget)
+            payload['cards_html'] = cards.render_widget(items, {'title': '', 'footer': ''}, 'auto')
+        except Exception:
+            payload['presentation_status'] = 'failed'
+            payload.setdefault('presentation_errors', []).append('product_render_failed')
     if 'cards_html' in payload:
         fragment = payload.pop('cards_html')
         if fmt == 'html':
             target = target_path('page_path', 'page.html')
-            private_write(target, html_page(fragment, '商品推荐'))
-            payload['page_file'] = str(target)
+            if save(target, html_page(fragment, '商品推荐')):
+                payload['page_file'] = str(target)
+                payload['html_file'] = str(target)
         else:
             target = target_path('fragment_path', 'fragment.html')
-            private_write(target, fragment)
-            payload['fragment_file'] = str(target)
-        payload['html_file'] = str(target)
+            if save(target, fragment):
+                payload['fragment_file'] = str(target)
+                payload['html_file'] = str(target)
     elif 'cards_markdown' in payload:
         target = directory / ('turn-%s.cards.md' % stamp)
-        private_write(target, payload.pop('cards_markdown'))
-        payload['html_file'] = str(target)
+        if save(target, payload.pop('cards_markdown')):
+            payload['html_file'] = str(target)
     if answer.strip():
         target = target_path('answer_path', 'answer.md')
-        private_write(target, answer)
-        payload['answer_file'] = str(target)
+        if save(target, answer):
+            payload['answer_file'] = str(target)
     if 'region_selector' in payload:
         payload.pop('region_selector')
         payload['region_selection_required'] = True
     payload['card_count'] = payload.get('card_count', 0)
+    print(json.dumps({'event': 'commerce.presentation', 'format': fmt,
+                      'status': payload.get('presentation_status', 'completed'),
+                      'checkout_count': payload.get('checkout_count', 0),
+                      'after_sale_count': payload.get('after_sale_count', 0),
+                      'output_ms': round((time.monotonic() - started) * 1000),
+                      'image_budget_exhausted': bool(budget and time.monotonic() >= budget.deadline)},
+                     ensure_ascii=False), file=sys.stderr)
 
 
 def handle(client, request, default_format, default_out_dir=None):
@@ -330,6 +316,10 @@ def handle(client, request, default_format, default_out_dir=None):
             for key, value in out_dirs.items():
                 if not isinstance(value, str) or not value.strip():
                     raise ClientError('INVALID_REQUEST', 'out_dirs.' + key + ' 必须是非空路径。')
+        paths = {**(request.get('out_dirs') or {}), **{key: request[key] for key in OUTPUT_PATH_KEYS if key in request}}
+        resolved = [str(Path(path).expanduser().resolve()) for path in paths.values()]
+        if len(resolved) != len(set(resolved)):
+            raise ClientError('INVALID_REQUEST', '不同产物必须指定不同路径。')
     if op == 'send':
         text = request.get('text')
         if not isinstance(text, str) or not text.strip():
@@ -356,12 +346,12 @@ def handle(client, request, default_format, default_out_dir=None):
     for key in ('authorization_url', 'message', 'error', 'presentation_status'):
         if result.get(key):
             payload[key] = result[key]
-    if (result.get('ok', True) and (result.get('answer') is not None or result.get('context_documents') or result.get('region_selector'))) or 'cart' in result:
+    if (result.get('ok', True) and (result.get('answer') is not None or result.get('context_documents') or result.get('region_selector'))) or 'cart' in result or any(result.get(k) for k in ('checkouts', 'after_sales', 'after_sale_lists')):
         rendered = render(result, fmt, request.get('max') or 0, bool(request.get('all')))
         payload.update(rendered)
         if result.get('region_selector'):
             payload['region_selector'] = result['region_selector']
-        payment_links = extract_payment_links(payload.get('answer'))
+        payment_links = payload.get('payment_links', []) if result.get('checkouts') else extract_payment_links(payload.get('answer'))
         if payment_links:
             payload['payment_links'] = payment_links
         write_outputs(payload, request, default_out_dir)

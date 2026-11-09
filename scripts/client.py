@@ -543,6 +543,28 @@ class Client:
                 result['cart'] = value_cart
             else:
                 result['cart'] = {'status': 'unavailable', 'items': []}
+        for kind, field in (('checkout', 'checkouts'), ('after_sale', 'after_sales'), ('after_sale_list', 'after_sale_lists')):
+            latest = {}
+            for document in docs:
+                if (document.get('kind') != 'filtalgo.commerce.' + kind
+                        or document.get('request_id') not in (None, request_id)
+                        or type(baseline) is not int or type(document.get('revision')) is not int
+                        or document['revision'] <= baseline):
+                    continue
+                identity = document.get('document_id')
+                if not isinstance(identity, str) or not identity:
+                    continue
+                if identity not in latest or document['revision'] > latest[identity]['revision']:
+                    latest[identity] = document
+            collected = []
+            for document in sorted(latest.values(), key=lambda d: (d.get('display_order', 0), d['revision'])):
+                if document.get('deleted'):
+                    continue
+                public = document.get('value')
+                collected.append({**document, 'value': public if document.get('schema_version') == 1 and isinstance(public, dict)
+                                  else {'status': 'unavailable'}})
+            if collected:
+                result[field] = collected
         if status == 'completed' and selectors:
             latest = selectors[-1]['value']
             group_id, part_count = latest.get('group_id'), latest.get('part_count')
@@ -560,7 +582,7 @@ class Client:
             result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'REGION_SELECTOR_UNAVAILABLE', 'message': '地区选择器暂时不可用，请稍后重试。'}})
         current_context = [d for d in context if d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
         result['context_documents'] = [d for d in current_context if d.get('kind') not in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')]
-        if status == 'completed' and not answer and not current_context and not selectors and not selector_errors and 'cart' not in result:
+        if status == 'completed' and not answer and not current_context and not selectors and not selector_errors and 'cart' not in result and not any(result.get(k) for k in ('checkouts', 'after_sales', 'after_sale_lists')):
             result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'NO_PUBLIC_RESPONSE', 'message': '本轮没有可展示的结果，请稍后重试。'}})
         with self.store.locked() as state:
             current = state['conversations'].get(key)

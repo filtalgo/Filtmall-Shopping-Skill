@@ -30,11 +30,11 @@ class OutputTests(unittest.TestCase):
                     self.assertIn('&lt;script&gt; &amp; 面膜', cart_content)
                     self.assertNotIn('<script>', cart_content)
                     if fmt == 'md':
-                        self.assertIn('2 件，单价 9.5 元（未选）', cart_content)
+                        self.assertIn(r'未选 · 数量 2 · 单价 ¥9\.50', cart_content)
                     else:
-                        self.assertIn('class="fm-cart-root"', cart_content)
+                        self.assertIn('class="fm-commerce"', cart_content)
                         self.assertIn('数量 2', cart_content)
-                        self.assertIn('单价 ¥9.5', cart_content)
+                        self.assertIn('单价 ¥9.50', cart_content)
                         self.assertIn('未选', cart_content)
                         self.assertNotIn('合计', cart_content)
                     if fmt == 'widget':
@@ -63,8 +63,8 @@ class OutputTests(unittest.TestCase):
             path = Path(result['cart_file'])
             content = path.read_text(encoding='utf8')
             self.assertIn('&lt;面膜&gt; \\[特价\\]', content)
-            self.assertIn('2 件，单价 29.9 元（已选）', content)
-            self.assertIn('商品：1 件（未选）', content)
+            self.assertIn(r'已选 · 数量 2 · 单价 ¥29\.90', content)
+            self.assertIn('商品：未选 · 数量 1 · 价格待确认', content)
             self.assertNotIn('sku', content)
             if os.name != 'nt': self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
@@ -85,7 +85,7 @@ class OutputTests(unittest.TestCase):
         cart = {'status': 'current', 'items': [{'sku_id': 's', 'title': '商品',
                  'quantity': 1, 'checked': True}]}
         _, content = service.render_cart(cart, 'widget')
-        self.assertIn('class="fm-tag checked">已选', content)
+        self.assertIn('已选 · 数量 1 · 价格待确认', content)
         self.assertIn('数量 1', content)
         self.assertNotIn('单价 ¥', content)
         self.assertNotIn('合计', content)
@@ -104,7 +104,7 @@ class OutputTests(unittest.TestCase):
                 _, content = service.render_cart(cart, fmt)
                 self.assertIn('src="data:image/png;base64,', content)
                 self.assertEqual(content.count('<img '), 1)
-                self.assertIn('🛍️', content)
+                self.assertIn('暂无图', content)
                 self.assertNotIn(url, content)
                 self.assertNotIn('javascript:', content)
             self.assertEqual(fetch.call_count, 2)
@@ -114,7 +114,7 @@ class OutputTests(unittest.TestCase):
         with patch.object(cards, 'thumbnail_data', return_value=None):
             _, content = service.render_cart(cart, 'widget')
             self.assertNotIn('<img ', content)
-            self.assertEqual(content.count('🛍️'), 2)
+            self.assertEqual(content.count('暂无图'), 2)
 
     def test_cart_thumbnail_download_rejects_unapproved_hosts(self):
         self.assertIsNone(cards.thumbnail_data('https://example.org/image.png', 1))

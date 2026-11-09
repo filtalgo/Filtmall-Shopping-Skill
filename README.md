@@ -8,6 +8,8 @@ Filtmall Shopping 是筛电的托管购物 Agent Skill。用户可以提出需�
 
 当前包默认使用 **生产环境**。会员操作需要单独授权，订单提交和付款由用户确认。
 
+当前 `main` 分支的包版本为 **2.1.0（未发布）**。正式发布时，`SKILL.md` 的 `metadata.version` 与 GitHub Release/tag 的版本保持一致（tag 添加 `v` 前缀）；本次只更新源码，不修改现有 release 或历史 tag。
+
 ## 安装
 
 将本目录完整复制到宿主的 Skill 目录，安装名称为 `filtmall-shopping`。需要 Python 3.10 或更高版本，无需安装额外依赖、配置渠道 AK/SK 或 SSH。客户端会申请并私有保存访客身份。
@@ -72,7 +74,11 @@ python3 "<skill-dir>/scripts/service.py" --once --format widget
 | 在浏览器或 WebView 打开独立页面 | `"format":"html"` | `page_file`：完整 HTML 页面 | `cart_page_file`：完整 HTML 页面 |
 | 宿主支持 Markdown 或只需文本展示 | `"format":"md"` | `html_file`：`.cards.md` 文件 | `cart_file`：`.cart.md` 文件 |
 
-这三种格式只影响商品卡片和购物车；正文仍从 `answer_file` 读取。独立商品页面是包含本次商品卡片的 HTML 文件，商品详情链接仍指向商城真实商品页。内联模式要求宿主支持 HTML，商品图片还需要支持 `data:` 图片；无法内联时按宿主能力选择 `html` 或 `md`。按本轮响应实际返回的字段读取，未产生对应内容时不会返回该字段。
+这三种格式同时适用于商品、购物车、结算和售后；正文仍从 `answer_file` 读取。结算输出 `checkout_file`，售后输出 `after_sale_file`；widget 另提供 `checkout_fragment_file` / `after_sale_fragment_file`，html 另提供 `checkout_page_file` / `after_sale_page_file`，md 直接读取相应 `.md`。结算/售后不要求有正文；只有本轮文档才生成文件，多实体合入对应业务文件。page 使用与内联相同的卡片，不附额外页面标题或状态栏。
+
+`checkout_path` / `after_sale_path`（也可放在 `out_dirs`）支持宿主自定义完整路径，所有产物路径必须不同。默认文件按轮次唯一；自定义目标原子覆盖。`presentation_status=failed` 时保留成功产物及真实执行状态；用原对话 `resume` 重渲染，不重复写操作。支付、退款实际状态只使用明确业务证据，不从正文或金额推断。完整字段与边界见 [协议](references/protocol.md)。
+
+内联模式要求宿主支持 HTML 和 `data:` 图片；无法内联时选 `html` 或 `md`。购物车展示选中/全车款数和件数、规范单价及缺价提示，HTML 第 3 行后折叠但不丢行，md 完整输出；图片共享本轮预算并复用重复 URL。
 
 启动时可用 `--format widget`、`--format html` 或 `--format md` 设置默认值；单次请求中的 `"format"` 会覆盖启动默认值。例如：
 
@@ -107,6 +113,7 @@ references/protocol.md   # Control 公开会话协议
 scripts/service.py       # 单次调用和常驻服务入口
 scripts/client.py        # 身份、会话与请求恢复
 scripts/cards.py         # 商品卡片渲染
+scripts/commerce_render.py # 购物车、结算和售后的三格式渲染
 scripts/region_lookup.py # pre 地区查询
 data/regions-pre.json    # pre 地区数据快照
 agents/openai.yaml       # 宿主展示元数据
