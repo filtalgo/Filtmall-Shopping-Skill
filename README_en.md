@@ -8,7 +8,7 @@ Filtmall Shopping is Filtalgo's hosted shopping Agent Skill. Users can describe 
 
 This package uses the **production environment** by default. Member operations require separate authorization, and order submission and payment require user confirmation.
 
-The package version on `main` is **2.1.0 (unreleased)**. A published release must use the same version as `metadata.version` in `SKILL.md`, with a `v` prefix on its GitHub tag. This update changes source files only; existing releases and historical tags remain unchanged.
+The current version is **2.1.0**, published as [GitHub Release v2.1.0](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.1.0). The `metadata.version` in `SKILL.md` is `2.1.0`, and the matching release/tag is `v2.1.0`.
 
 ## Installation
 
