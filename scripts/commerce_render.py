@@ -2,7 +2,7 @@
 from decimal import Decimal, InvalidOperation, localcontext
 import html
 import re
-from urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit, urlunsplit, quote
 import cards
 
 STYLE = '''<style>
@@ -85,6 +85,23 @@ def product_rows(items, fmt, budget, cart=False):
     return body, lines
 
 
+def mobile_navigation_url(href):
+    """Map only known storefront cart/order routes; preserve business query data."""
+    hosts = {'buyer.filtalgo.com': 'm.filtalgo.com',
+             'pre-buyer.filtalgo.com': 'pre-m.filtalgo.com',
+             'dev-buyer.filtalgo.com': 'dev-m.filtalgo.com'}
+    paths = {'/cart': '/pages/tabbar/cart',
+             '/user/home/orderCenter/myOrder': '/pages/mine/order/list',
+             '/user/home/orderCenter/orderDetail': '/pages/mine/order/detail'}
+    try:
+        url = urlsplit(href)
+        if url.scheme == 'https' and url.netloc in hosts and url.path in paths:
+            return urlunsplit(('https', hosts[url.netloc], paths[url.path], url.query, url.fragment))
+    except ValueError:
+        pass
+    return href
+
+
 def navigation(links):
     result = []
     for link in links if isinstance(links, list) else []:
@@ -98,7 +115,7 @@ def navigation(links):
             url.port
         except ValueError:
             continue
-        result.append(({'payment': '打开收银台', 'checkout': '查看结算', 'after_sale': '打开售后详情', 'cart': '打开购物车'}[link['rel']], href, link['rel']))
+        result.append(({'payment': '打开收银台', 'checkout': '查看结算', 'after_sale': '打开售后详情', 'cart': '打开购物车'}[link['rel']], mobile_navigation_url(href), link['rel']))
     return result
 
 
@@ -183,7 +200,7 @@ def render_documents(documents, kind, fmt, budget):
         if note:
             body += '<div class="note">%s</div>' % escape(note)
             lines.append('> 下一步：' + md(note))
-        links = navigation(value.get('links'))
+        links = [link for link in navigation(value.get('links')) if kind != 'checkout' or link[2] != 'checkout']
         filtered_payment = terminal_checkout and any(rel == 'payment' for _, _, rel in links)
         if terminal_checkout:
             links = [link for link in links if link[2] != 'payment']

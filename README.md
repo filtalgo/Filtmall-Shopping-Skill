@@ -8,7 +8,7 @@ Filtmall Shopping 是筛电的托管购物 Agent Skill。用户可以提出需�
 
 当前包默认使用 **生产环境**。会员操作需要单独授权，订单提交和付款由用户确认。
 
-当前版本为 **2.1.0**，对应 [GitHub Release v2.1.0](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.1.0)。`SKILL.md` 的 `metadata.version` 为 `2.1.0`，Release/tag 使用 `v2.1.0`，三者保持一致。
+当前版本为 **2.1.1**，对应 [GitHub Release v2.1.1](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.1.1)。`SKILL.md` 的 `metadata.version` 为 `2.1.1`，Release/tag 使用 `v2.1.1`，三者保持一致。
 
 ## 安装
 

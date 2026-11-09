@@ -22,6 +22,38 @@ def checkout(identifier='CS1'):
 
 
 class CommerceTests(unittest.TestCase):
+    def test_mobile_cart_and_order_links_in_cards_and_answer(self):
+        for prefix in ('', 'pre-', 'dev-'):
+            host = 'https://' + prefix + 'buyer.filtalgo.com'
+            mobile = 'https://' + prefix + 'm.filtalgo.com'
+            for old, new in (('/cart', '/pages/tabbar/cart'),
+                             ('/user/home/orderCenter/myOrder', '/pages/mine/order/list'),
+                             ('/user/home/orderCenter/orderDetail', '/pages/mine/order/detail')):
+                source = host + old + '?sn=O%2F123&journey_id=j1'
+                expected = mobile + new + '?sn=O%2F123&journey_id=j1'
+                self.assertEqual(commerce_render.mobile_navigation_url(source), expected)
+                result = {'answer': {'value': {'content': '[查看](%s)' % source}}}
+                self.assertEqual(service.answer_text(result), '[查看](%s)' % expected)
+            for fmt in ('widget', 'html', 'md'):
+                _, content = commerce_render.render_cart({'status': 'current', 'items': [], 'cart_url': host + '/cart'}, fmt)
+                self.assertIn(mobile + '/pages/tabbar/cart', content)
+                self.assertNotIn(host + '/cart', content)
+                doc = checkout()
+                doc['value']['links'] = [{'rel': 'checkout', 'href': host + '/user/home/orderCenter/orderDetail?sn=O123'}]
+                content, links = commerce_render.render([doc], 'checkout', fmt, cards.ImageBudget())
+                self.assertNotIn('查看结算', content)
+                self.assertNotIn('/pages/mine/order/detail', content)
+                self.assertEqual(links, [])
+
+    def test_mobile_navigation_preserves_other_and_untrusted_urls(self):
+        for url in ('https://buyer.test/cart', 'https://buyer.filtalgo.com.evil/cart',
+                    'https://evil@buyer.filtalgo.com/cart', 'http://buyer.filtalgo.com/cart',
+                    'https://buyer.filtalgo.com/payment/cashier?orderSn=T1',
+                    'https://buyer.filtalgo.com/oauth/device',
+                    'https://m.filtalgo.com/pages/tabbar/cart',
+                    'https://buyer.filtalgo.com/unknown'):
+            self.assertEqual(commerce_render.mobile_navigation_url(url), url)
+
     def test_cart_navigation_and_checkout_title_in_every_format(self):
         for fmt in ('widget', 'html', 'md'):
             for items in ([], [{'sku_id': '1', 'quantity': 1, 'checked': True}]):
@@ -76,7 +108,7 @@ class CommerceTests(unittest.TestCase):
                     self.assertNotIn('请前往收银台完成付款', content)
                     self.assertNotIn('打开收银台', content)
                     self.assertNotIn('https://buyer.test/cashier', content)
-                    self.assertIn('查看结算', content)
+                    self.assertNotIn('查看结算', content)
                     self.assertEqual(output['payment_links'], [])
                 document['value']['links'] = [document['value']['links'][0]]
                 content, links = commerce_render.render([document], 'checkout', fmt, cards.ImageBudget())

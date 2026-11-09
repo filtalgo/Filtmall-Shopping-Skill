@@ -109,7 +109,8 @@ def run_request(client, request, default_format, default_out_dir=None, heartbeat
 def answer_text(result):
     value = (result.get('answer') or {}).get('value') or {}
     content = value.get('content')
-    return cards.unescape_markdown(content) if isinstance(content, str) else ''
+    text = cards.unescape_markdown(content) if isinstance(content, str) else ''
+    return URL_PATTERN.sub(lambda match: commerce_render.mobile_navigation_url(match.group()), text)
 
 
 URL_PATTERN = re.compile(r'https://[^\s<>"\'）)】\]，。；、]+')
