@@ -2,7 +2,7 @@
 from decimal import Decimal, InvalidOperation, localcontext
 import html
 import re
-from urllib.parse import urlsplit, urlunsplit, quote
+from urllib.parse import urlsplit, urlunsplit, quote, parse_qsl, urlencode
 import cards
 
 STYLE = '''<style>
@@ -86,7 +86,7 @@ def product_rows(items, fmt, budget, cart=False):
 
 
 def mobile_navigation_url(href):
-    """Map only known storefront cart/order routes; preserve business query data."""
+    """Map known storefront routes and cashier parameters to their H5 equivalents."""
     hosts = {'buyer.filtalgo.com': 'm.filtalgo.com',
              'pre-buyer.filtalgo.com': 'pre-m.filtalgo.com',
              'dev-buyer.filtalgo.com': 'dev-m.filtalgo.com'}
@@ -95,6 +95,19 @@ def mobile_navigation_url(href):
              '/user/home/orderCenter/orderDetail': '/pages/mine/order/detail'}
     try:
         url = urlsplit(href)
+        if url.scheme == 'https' and url.netloc in hosts and url.path == '/payment/cashier':
+            pairs = parse_qsl(url.query, keep_blank_values=True)
+            scenes = [value for key, value in pairs if key == 'paymentScene']
+            numbers = [value for key, value in pairs if key == 'orderSn']
+            fields = {'TRADE': 'trade_sn', 'ORDER': 'order_sn', 'RECHARGE': 'recharge_sn'}
+            if len(scenes) != 1 or scenes[0] not in fields or len(numbers) != 1 or not numbers[0].strip():
+                return href
+            # Conflicting H5 identifiers must not change which transaction is paid.
+            if any(key in ('trade_sn', 'order_sn', 'recharge_sn', 'sn', 'orderType') for key, _ in pairs):
+                return href
+            query = [(key, value) for key, value in pairs if key not in ('paymentScene', 'orderSn')]
+            query.append((fields[scenes[0]], numbers[0]))
+            return urlunsplit(('https', hosts[url.netloc], '/pages/mine/payment/payOrder', urlencode(query), url.fragment))
         if url.scheme == 'https' and url.netloc in hosts and url.path in paths:
             return urlunsplit(('https', hosts[url.netloc], paths[url.path], url.query, url.fragment))
     except ValueError:

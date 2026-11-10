@@ -22,6 +22,37 @@ def checkout(identifier='CS1'):
 
 
 class CommerceTests(unittest.TestCase):
+    def test_h5_cashier_in_answer_cards_and_payment_links(self):
+        for prefix in ('', 'pre-', 'dev-'):
+            for scene, field in (('TRADE', 'trade_sn'), ('ORDER', 'order_sn'), ('RECHARGE', 'recharge_sn')):
+                source = ('https://' + prefix + 'buyer.filtalgo.com/payment/cashier'
+                          '?orderSn=T%2F123&paymentScene=' + scene + '&journey_id=j1&tag=a&tag=b#pay')
+                expected = ('https://' + prefix + 'm.filtalgo.com/pages/mine/payment/payOrder'
+                            '?journey_id=j1&tag=a&tag=b&' + field + '=T%2F123#pay')
+                self.assertEqual(commerce_render.mobile_navigation_url(source), expected)
+                self.assertEqual(commerce_render.mobile_navigation_url(expected), expected)
+                result = {'answer': {'value': {'content': '去支付：' + source}}}
+                self.assertEqual(service.answer_text(result), '去支付：' + expected)
+                for fmt in ('widget', 'html', 'md'):
+                    document = checkout()
+                    document['value']['links'][0]['href'] = source
+                    payload = service.render({**result, 'checkouts': [document]}, fmt, 0)
+                    self.assertEqual(payload['payment_links'], [expected])
+                    self.assertNotIn(prefix + 'buyer.filtalgo.com/payment/cashier', str(payload))
+                payload = service.render(result, 'md', 0)
+                self.assertEqual(service.extract_payment_links(payload['answer']), [expected])
+
+    def test_h5_cashier_preserves_ambiguous_or_incomplete_payment_urls(self):
+        base = 'https://buyer.filtalgo.com/payment/cashier?'
+        for query in ('orderSn=T1', 'paymentScene=TRADE', 'orderSn=&paymentScene=TRADE',
+                      'orderSn=T1&paymentScene=UNKNOWN',
+                      'orderSn=T1&orderSn=T2&paymentScene=TRADE',
+                      'orderSn=T1&paymentScene=TRADE&paymentScene=ORDER',
+                      'orderSn=T1&paymentScene=TRADE&trade_sn=T2',
+                      'orderSn=T1&paymentScene=TRADE&order_sn=O2',
+                      'orderSn=T1&paymentScene=TRADE&sn=O2'):
+            self.assertEqual(commerce_render.mobile_navigation_url(base + query), base + query)
+
     def test_mobile_cart_and_order_links_in_cards_and_answer(self):
         for prefix in ('', 'pre-', 'dev-'):
             host = 'https://' + prefix + 'buyer.filtalgo.com'

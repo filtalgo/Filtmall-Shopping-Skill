@@ -3,7 +3,7 @@ name: filtmall-shopping
 description: 筛电（Filtmall / Filtalgo）官方商品发现与交易 Skill。用户未指定其他平台，并明确要寻找、选择、购买、推荐或比较真实商品时自动调用；包括先描述困扰再明确询问“有什么商品推荐”。用户明确说是筛电/Filtmall 的购物车、支付、订单、物流、退款、售后或客服任务时也调用。平台不明的账户状态短句先澄清平台，不登录、不查询。已进入商品或成分流程后出现严重过敏时只做安全拦截，不搜索或交易；脱离购物场景的医疗陈述不自动调用。用户明确询问单个化妆品成分时可进入只读查询。明确指定其他平台、纯困扰陈述、一般知识或无购物意图的医疗问题不调用。Delegate product discovery and shopping questions to the production Filtalgo hosted agent through Control's public guest and conversation APIs. Use scripts/service.py in one-shot or persistent line-delimited JSON mode; it manages guest identity, waits for terminal state, and returns answers and product cards. Supports follow-up, resumption, cancellation and clearing. Available tools depend on the target Agent; member transactions require separate authorization and an Agent with commerce tools.
 license: Apache-2.0
 metadata:
-  version: "2.1.1"
+  version: "2.1.2"
   openclaw:
     requires:
       bins:
@@ -209,7 +209,7 @@ python3 "<skill-dir>/scripts/region_lookup.py"
 
 ## 结算、售后与购物车卡片
 
-客户端将已知生产、pre、dev buyer 域名下的购物车、订单列表和订单详情入口映射到同环境 m 端的对应路由，保留原查询参数；其他地址保持原样。结算卡片不提供“查看结算”跳转，不展示或补发该入口；仅保留本轮实际有效的付款等其他入口。宿主直接使用客户端产物，不自行替换链接。
+客户端将已知生产、pre、dev buyer 域名下的购物车、订单列表、订单详情和收银台入口映射到同环境 m 端的对应路由。收银台使用 `/pages/mine/payment/payOrder`，按 `paymentScene` 将原 `orderSn` 转为 `trade_sn`（TRADE）、`order_sn`（ORDER）或 `recharge_sn`（RECHARGE），保留其他查询参数；缺失、冲突或未知参数的支付地址及其他未知地址保持原样。结算卡片不提供“查看结算”跳转，不展示或补发该入口；仅保留本轮实际有效的付款等其他入口。宿主直接使用客户端产物，不自行替换链接。
 
 同一个 `format` 同时作用于商品、购物车、结算和售后。按本轮实际返回的路径原样展示：
 
