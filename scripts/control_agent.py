@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Public Control guest client. Standard library only; no channel secrets."""
 import argparse
+import base64
+import gzip
+import io
 from contextlib import contextmanager
 import hashlib
 import json
+import zlib
 import os
 from pathlib import Path
 import sys
@@ -17,6 +21,29 @@ class ClientError(Exception):
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
+
+
+def decode_region_selector(document):
+    value = document.get('value')
+    if not isinstance(value, dict) or value.get('schema') != 'filtmall.region-selector/v1' or value.get('encoding') != 'gzip+base64' or value.get('columns') != ['id', 'parent_id', 'name', 'level'] or value.get('root_id') != '0':
+        raise ClientError('INVALID_REGION_SELECTOR', '地区选择器数据无效。')
+    data = value.get('data')
+    try:
+        if not isinstance(data, str) or len(data) > 1800000:
+            raise ValueError('invalid size')
+        compressed = base64.b64decode(data, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as source:
+            raw = source.read(10 * 1024 * 1024 + 1)
+        if len(raw) > 10 * 1024 * 1024:
+            raise ValueError('directory too large')
+        nodes = json.loads(raw)
+        if not isinstance(nodes, list) or len(nodes) != value.get('count') or len(nodes) > 200000:
+            raise ValueError('invalid node count')
+        if any(not isinstance(row, list) or len(row) != 4 or any(not isinstance(x, str) or not x for x in row) for row in nodes):
+            raise ValueError('invalid node')
+    except (ValueError, TypeError, OSError, EOFError, zlib.error):
+        raise ClientError('INVALID_REGION_SELECTOR', '地区选择器数据无效。') from None
+    return {'schema': value['schema'], 'selector_id': value['group_id'], 'columns': value['columns'], 'root_id': '0', 'nodes': nodes}
 
 
 class NoRedirect(request.HTTPRedirectHandler):
@@ -97,6 +124,28 @@ class Store:
         finally:
             Path(name).unlink(missing_ok=True)
 
+    @contextmanager
+    def authorization_lock(self, key):
+        path = self.directory / ('auth-' + hashlib.sha256(key.encode()).hexdigest() + '.lock')
+        if path.is_symlink():
+            raise ClientError('UNSAFE_STATE', '授权锁不能是符号链接。')
+        with open(path, 'a+b') as lock:
+            if os.name == 'nt':
+                import msvcrt
+                lock.seek(0); lock.write(b'0'); lock.flush(); lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                os.chmod(path, 0o600)
+                fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == 'nt':
+                    lock.seek(0); msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+
 
 class Client:
     def __init__(self, origin, agent_id, store, transport=None, user_key='local'):
@@ -136,6 +185,9 @@ class Client:
 
     def conversation(self, key):
         with self.store.locked() as state:
+            target = {'origin': self.origin, 'agent_id': self.agent_id, 'subject': self.subject}
+            if state.get('target', target) != target:
+                raise ClientError('STATE_TARGET_MISMATCH', '不能将另一用户或环境的身份用于当前请求。')
             value = state['conversations'].get(key)
             if not value:
                 raise ClientError('NO_CONVERSATION', '该本地会话不存在，请先 send。')
@@ -148,6 +200,9 @@ class Client:
     def send(self, key, text, wait=True, timeout=120):
         if not text.strip() or len(text.encode()) > 1024 * 1024:
             raise ClientError('INVALID_TEXT', '消息不能为空或超过 1 MiB。')
+        authorization = self.complete_authorization(key)
+        if authorization is not None:
+            return authorization
         token = self.token()
         with self.store.locked() as state:
             value = state['conversations'].get(key)
@@ -179,6 +234,10 @@ class Client:
     def resume(self, key, timeout=120):
         value = self.conversation(key)
         if not value.get('pending'):
+            if value.get('authorization'):
+                return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': value['authorization']['url'], 'message': '请打开链接完成商城授权，然后发送新消息。'}
+            if value.get('last_status') == 'authorization_completed':
+                return {'ok': True, 'status': 'idle', 'conversation': key}
             if not value.get('last_request_id'):
                 return {'ok': True, 'status': 'idle', 'conversation': key}
             value['pending'] = {'request_id': value['last_request_id'], 'start_revision': value.get('last_start_revision', 0)}
@@ -198,7 +257,7 @@ class Client:
     def documents(self, session_id, request_id):
         documents = []; cursor = 0
         while True:
-            page = self.api('GET', self.path(session_id, '/documents?after_order=' + str(cursor) + '&limit=200'))
+            page = self.api('GET', self.path(session_id, '/documents?after_order=' + str(cursor) + '&limit=20'))
             documents.extend(d for d in page['documents'] if not d.get('deleted'))
             next_cursor = page.get('next_cursor')
             if next_cursor is None:
@@ -206,6 +265,121 @@ class Client:
             if not isinstance(next_cursor, int) or next_cursor <= cursor:
                 raise ClientError('INVALID_CURSOR', '会话文档分页游标无效。')
             cursor = next_cursor
+
+    def complete_authorization(self, key):
+        with self.store.authorization_lock(key):
+            return self._complete_authorization_locked(key)
+
+    def _complete_authorization_locked(self, key):
+        with self.store.locked() as state:
+            target = {'origin': self.origin, 'agent_id': self.agent_id, 'subject': self.subject}
+            if state.get('target', target) != target:
+                raise ClientError('STATE_TARGET_MISMATCH', '不能将另一用户或环境的身份用于当前请求。')
+            conversation = state['conversations'].get(key) or {}
+            pending = conversation.get('authorization')
+            if not pending:
+                return None
+            pending = dict(pending)
+        if pending['expires_at'] <= time.time() * 1000:
+            if pending.get('poll_attempted'):
+                path = '/api/v2/delegations/authorization-requests/' + parse.quote(pending['id'], safe='')
+                status = self.api('GET', path)
+                if isinstance(status, dict) and status.get('status') == 'completed' and status.get('delegation_id'):
+                    with self.store.locked() as state:
+                        conversation = state['conversations'].get(key) or {}
+                        if conversation.get('authorization', {}).get('id') == pending['id']:
+                            conversation.pop('authorization', None)
+                            conversation['last_status'] = 'authorization_completed'
+                            self.store.save(state)
+                    return None
+            with self.store.locked() as state:
+                conversation = state['conversations'].get(key) or {}
+                if conversation.get('authorization', {}).get('id') == pending['id']:
+                    conversation.pop('authorization', None)
+                    self.store.save(state)
+            raise ClientError('AUTHORIZATION_EXPIRED', '授权已过期，请重新发起业务请求获取新链接。')
+        if pending.get('next_poll_at', 0) > time.time() * 1000:
+            return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': pending['url'], 'message': '请先完成商城授权，再发送消息。'}
+        path = '/api/v2/delegations/authorization-requests/' + parse.quote(pending['id'], safe='')
+        with self.store.locked() as state:
+            current = (state['conversations'].get(key) or {}).get('authorization')
+            if current and current.get('id') == pending['id']:
+                current['poll_attempted'] = True
+                self.store.save(state)
+        try:
+            result = self.api('POST', path + '/device/poll', {'state': pending['state'], 'exchange': pending['exchange']})
+        except ClientError as exc:
+            if exc.code != 'HTTP_409':
+                raise
+            status = self.api('GET', path)
+            if not isinstance(status, dict) or status.get('status') != 'completed' or not status.get('delegation_id'):
+                if not isinstance(status, dict) or status.get('status') not in ('expired', 'denied', 'revoked', 'cancelled'):
+                    raise ClientError('AUTHORIZATION_UNCERTAIN', '授权状态尚未确认，请稍后重试；如已明确拒绝授权，可执行 auth-reset 后重新发起。') from None
+                with self.store.locked() as state:
+                    conversation = state['conversations'].get(key) or {}
+                    if conversation.get('authorization', {}).get('id') == pending['id']:
+                        conversation.pop('authorization', None)
+                        self.store.save(state)
+                raise ClientError('AUTHORIZATION_FAILED', '授权已失效或被拒绝，请重新发起业务请求。') from None
+            result = {'status': 'active'}
+        if not isinstance(result, dict):
+            raise ClientError('INVALID_RESPONSE', '授权状态响应无效。')
+        if result.get('status') in ('authorization_pending', 'slow_down'):
+            interval = result.get('interval', pending.get('interval', 5))
+            if not isinstance(interval, int) or isinstance(interval, bool) or not 1 <= interval <= 300:
+                interval = 5
+            with self.store.locked() as state:
+                conversation = state['conversations'].get(key) or {}
+                current = conversation.get('authorization')
+                if current and current.get('id') == pending['id']:
+                    current['interval'] = interval
+                    current['next_poll_at'] = int(time.time() * 1000) + interval * 1000
+                    self.store.save(state)
+            return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': pending['url'], 'message': '请先完成商城授权，再发送消息。'}
+        if result.get('status') != 'active':
+            raise ClientError('AUTHORIZATION_FAILED', '授权未完成，请重新发起业务请求。')
+        with self.store.locked() as state:
+            conversation = state['conversations'].get(key) or {}
+            if conversation.get('authorization', {}).get('id') == pending['id']:
+                conversation.pop('authorization', None)
+                conversation['last_status'] = 'authorization_completed'
+                self.store.save(state)
+        return None
+
+    def start_authorization(self, key, doc):
+        with self.store.authorization_lock(key):
+            return self._start_authorization_locked(key, doc)
+
+    def _start_authorization_locked(self, key, doc):
+        with self.store.locked() as local:
+            existing = (local['conversations'].get(key) or {}).get('authorization')
+            if existing and existing.get('expires_at', 0) > time.time() * 1000:
+                return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': existing['url'], 'message': '请打开链接完成商城授权，然后发送新消息。'}
+        value = doc.get('value')
+        if not isinstance(value, dict) or value.get('provider') != 'filtmall':
+            raise ClientError('INVALID_AUTHORIZATION', '授权请求无效。')
+        identifier, state_value = value.get('id'), value.get('state')
+        if not isinstance(identifier, str) or not identifier or not isinstance(state_value, str) or not state_value:
+            raise ClientError('INVALID_AUTHORIZATION', '授权请求不完整。')
+        path = '/api/v2/delegations/authorization-requests/' + parse.quote(identifier, safe='') + '/device'
+        result = self.api('POST', path, {'state': state_value})
+        if not isinstance(result, dict):
+            raise ClientError('INVALID_AUTHORIZATION', '授权接口响应无效。')
+        url = result.get('verification_uri_complete'); parsed = parse.urlsplit(url) if isinstance(url, str) else None
+        if not parsed or parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+            raise ClientError('INVALID_AUTHORIZATION', '授权链接无效。')
+        if not isinstance(result.get('exchange'), str) or not result['exchange'] or not isinstance(result.get('expires_at'), int):
+            raise ClientError('INVALID_AUTHORIZATION', '授权接口响应不完整。')
+        with self.store.locked() as local:
+            conversation = local['conversations'].get(key)
+            if not conversation:
+                raise ClientError('NO_CONVERSATION', '会话不存在。')
+            interval = result.get('interval', 5)
+            if not isinstance(interval, int) or isinstance(interval, bool) or not 1 <= interval <= 300:
+                interval = 5
+            conversation['authorization'] = {'id': identifier, 'state': state_value, 'exchange': result['exchange'], 'expires_at': result['expires_at'], 'url': url, 'interval': interval, 'next_poll_at': int(time.time() * 1000) + interval * 1000}
+            self.store.save(local)
+        return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': url, 'message': '请打开链接完成商城授权，然后发送新消息。'}
 
     def wait(self, key, timeout, value=None):
         value = value or self.conversation(key); deadline = time.monotonic() + timeout
@@ -239,17 +413,46 @@ class Client:
                     if texts:
                         answer = {'kind': 'filtalgo.shopping.text', 'schema_version': 1, 'source': 'current-turn-public-text', 'value': {'content': '\n\n'.join(texts)}}
                 context = [d for d in docs if str(d.get('kind', '')).startswith('filtalgo.shopping.block:') or d.get('kind') in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')]
+                baseline = value['pending'].get('start_revision')
+                challenges = [d for d in context if d.get('kind') in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization') and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
+                challenges.sort(key=lambda d: d['revision'])
+                authorization = self.start_authorization(key, challenges[-1]) if status == 'waiting' and challenges else None
+                context = [d for d in context if d.get('kind') not in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')]
+                selectors = [d for d in docs if d.get('kind') == 'filtalgo.commerce.region_selector' and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
+                selectors.sort(key=lambda d: d['revision'])
+                result = {'ok': status in ('completed', 'waiting'), 'status': status, 'conversation': key, 'answer': answer, 'context_documents': context}
+                if status == 'completed' and selectors:
+                    latest = selectors[-1]['value']
+                    group_id, part_count = latest.get('group_id'), latest.get('part_count')
+                    if not isinstance(group_id, str) or not isinstance(part_count, int) or isinstance(part_count, bool) or not 1 <= part_count <= 16:
+                        raise ClientError('INVALID_REGION_SELECTOR', '地区选择器数据不完整。')
+                    group = [d.get('value') for d in selectors if isinstance(d.get('value'), dict) and d['value'].get('group_id') == group_id]
+                    if len(group) != part_count or any(x.get('part_count') != part_count for x in group):
+                        raise ClientError('INVALID_REGION_SELECTOR', '地区选择器数据不完整。')
+                    group.sort(key=lambda x: x.get('part_index', -1))
+                    if [x.get('part_index') for x in group] != list(range(part_count)) or any(x.get('schema') != latest.get('schema') or x.get('columns') != latest.get('columns') or x.get('encoding') != latest.get('encoding') or x.get('count') != latest.get('count') or x.get('root_id') != latest.get('root_id') or not isinstance(x.get('data'), str) for x in group):
+                        raise ClientError('INVALID_REGION_SELECTOR', '地区选择器数据不完整。')
+                    result['region_selector'] = decode_region_selector({'value': {**latest, 'data': ''.join(x['data'] for x in group)}})
+                selector_errors = [d for d in docs if d.get('kind') == 'filtalgo.commerce.region_selector_error' and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
+                if status == 'completed' and selector_errors and not selectors:
+                    result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'REGION_SELECTOR_UNAVAILABLE', 'message': '地区选择器暂时不可用，请稍后重试。'}})
+                current_context = [d for d in context if d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
+                if status == 'completed' and not answer and not current_context and not selectors and not selector_errors:
+                    result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'NO_PUBLIC_RESPONSE', 'message': '本轮没有可展示的结果，请稍后重试。'}})
                 with self.store.locked() as state:
                     current = state['conversations'].get(key)
                     if current and current.get('pending', {}).get('request_id') == value['pending']['request_id']:
-                        current.pop('pending'); current['last_status'] = status
+                        current.pop('pending'); current['last_status'] = result['status']
                         current['last_request_id'] = value['pending']['request_id']
                         current['last_start_revision'] = value['pending'].get('start_revision', 0)
                         self.store.save(state)
-                return {'ok': status in ('completed', 'waiting'), 'status': status, 'conversation': key, 'answer': answer, 'context_documents': context}
+                if authorization:
+                    return authorization
+                return result
             if time.monotonic() >= deadline:
                 raise ClientError('PENDING_INPUT', '尚未取得执行终态，已保存原请求；请 resume，不要重新 send。')
             time.sleep(1)
+
 
     def cancel(self, key):
         value = self.conversation(key)
@@ -268,11 +471,22 @@ class Client:
             state['conversations'].pop(key, None); self.store.save(state)
         return {'ok': True, 'status': 'cleared', 'conversation': key}
 
+    def reset_authorization(self, key):
+        self.conversation(key)
+        with self.store.authorization_lock(key):
+            with self.store.locked() as state:
+                conversation = state['conversations'].get(key)
+                if not conversation:
+                    raise ClientError('NO_CONVERSATION', '该本地会话不存在。')
+                conversation.pop('authorization', None)
+                self.store.save(state)
+        return {'ok': True, 'status': 'authorization_reset', 'conversation': key}
+
 
 def main():
     defaults = json.loads(Path(__file__).resolve().parents[1].joinpath('defaults.json').read_text())
-    parser = argparse.ArgumentParser(description='通过公开访客接口委托筛电 Agent；默认 pre，不需要 AK/SK。')
-    parser.add_argument('command', choices=['send', 'resume', 'cancel', 'clear', 'status'])
+    parser = argparse.ArgumentParser(description='通过公开访客接口委托筛电 Agent；默认生产环境，不需要 AK/SK。')
+    parser.add_argument('command', choices=['send', 'resume', 'cancel', 'clear', 'status', 'auth-reset'])
     parser.add_argument('--conversation', required=True, help='宿主为当前用户当前对话生成的独立本地标识')
     parser.add_argument('--user-key', default='local', help='多用户宿主必须使用可信的独立用户标识')
     parser.add_argument('--control-url', default=None)
@@ -294,6 +508,7 @@ def main():
     elif args.command == 'resume': result = client.resume(args.conversation, args.timeout)
     elif args.command == 'cancel': result = client.cancel(args.conversation)
     elif args.command == 'clear': result = client.clear(args.conversation)
+    elif args.command == 'auth-reset': result = client.reset_authorization(args.conversation)
     else:
         value = client.conversation(args.conversation)
         result = {'ok': True, 'status': 'pending' if value.get('pending') else value.get('last_status', 'idle'), 'conversation': args.conversation}

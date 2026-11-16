@@ -3,20 +3,85 @@ import tempfile
 import time
 import threading
 import unittest
+import sys
+from unittest.mock import patch
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location('client', Path(__file__).parents[1] / 'scripts/client.py')
+SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+sys.path.insert(0, str(SCRIPTS))
+spec = importlib.util.spec_from_file_location('client', SCRIPTS / 'client.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
 class AuthorizationTests(unittest.TestCase):
+    def test_repoll_respects_server_slow_down_interval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = module.Client('https://control.example', 'agent', module.Store(directory))
+            pending = {'id': 'req', 'state': 'state', 'exchange': 'sealed', 'interval': 2}
+            clock, waits, polls = [0], [], []
+            def sleep(seconds):
+                waits.append(seconds)
+                clock[0] += seconds
+            def api(method, path, body=None):
+                if method == 'GET':
+                    return {'status': 'pending'}
+                polls.append(1)
+                return {'status': 'slow_down', 'interval': 7} if len(polls) == 1 else {'status': 'active'}
+            client.api = api
+            with patch.object(module.time, 'sleep', side_effect=sleep), patch.object(module.time, 'monotonic', side_effect=lambda: clock[0]):
+                self.assertTrue(client.poll_granted(pending, 20))
+            self.assertEqual(waits, [2, 7])
+            self.assertEqual(pending['interval'], 7)
+
+    def test_repoll_slow_down_without_interval_increases_wait(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = module.Client('https://control.example', 'agent', module.Store(directory))
+            pending = {'id': 'req', 'state': 'state', 'exchange': 'sealed', 'interval': 2}
+            clock, waits, polls = [0], [], []
+            def sleep(seconds):
+                waits.append(seconds)
+                clock[0] += seconds
+            def api(method, path, body=None):
+                if method == 'GET':
+                    return {'status': 'pending'}
+                polls.append(1)
+                return {'status': 'slow_down'} if len(polls) == 1 else {'status': 'active'}
+            client.api = api
+            with patch.object(module.time, 'sleep', side_effect=sleep), patch.object(module.time, 'monotonic', side_effect=lambda: clock[0]):
+                self.assertTrue(client.poll_granted(pending, 20))
+            self.assertEqual(waits, [2, 7])
+            self.assertEqual(pending['interval'], 7)
+
+    def test_repoll_conflict_requires_confirmed_delegation(self):
+        pending = {'id': 'req', 'state': 'state', 'exchange': 'sealed', 'interval': 1}
+        cases = [
+            ({'status': 'pending'}, False),
+            ({'status': 'denied'}, False),
+            ({'status': 'expired'}, False),
+            ({'status': 'completed'}, False),
+            ({'status': 'completed', 'delegation_id': 'delegation'}, True),
+            (None, False),
+        ]
+        for status, expected in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                client = module.Client('https://control.example', 'agent', module.Store(directory))
+                def api(method, path, body=None):
+                    if method == 'POST':
+                        raise module.ClientError('HTTP_409', 'conflict')
+                    if status is None:
+                        raise module.ClientError('NETWORK_ERROR', 'unavailable')
+                    return status
+                client.api = api
+                with patch.object(module.time, 'sleep'):
+                    self.assertEqual(client.poll_granted(pending, time.monotonic() + 2), expected)
+
     def test_resume_reuses_link_without_starting_again(self):
         with tempfile.TemporaryDirectory() as directory:
             store = module.Store(directory)
             client = module.Client('https://control.example', 'agent', store)
             with store.locked() as state:
-                state['conversations']['a'] = {'id': 'session', 'authorization': {'url': 'https://buyer.example/code', 'expires_at': int(time.time() * 1000) + 60000}}
+                state['conversations']['a'] = {'id': 'session', 'authorization': {'id': 'req', 'state': 'state', 'exchange': 'sealed', 'url': 'https://buyer.example/code', 'expires_at': int(time.time() * 1000) + 60000, 'next_poll_at': int(time.time() * 1000) + 30000}}
                 store.save(state)
             client.api = lambda *args, **kwargs: self.fail('must not call device endpoint')
             self.assertEqual(client.resume('a')['authorization_url'], 'https://buyer.example/code')

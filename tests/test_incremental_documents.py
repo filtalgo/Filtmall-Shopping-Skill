@@ -44,6 +44,41 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(result['error']['code'], 'NO_PUBLIC_RESPONSE')
         self.assertEqual(calls, [(40,), ()])
 
+    def test_referenced_message_v1_and_v2_survive_settlement(self):
+        for version in (1, 2):
+            with self.subTest(version=version):
+                api = self.make()
+                body = {'role': 'assistant', 'content': '该状态下未查到订单。'}
+                answer = {'kind': 'message', 'schema_version': version, 'document_id': 'answer',
+                          'request_id': None, 'revision': 43, 'value': body}
+                api.documents = lambda *args: [
+                    {'kind': 'request.status', 'request_id': 'r', 'schema_version': 1,
+                     'value': {'status': 'completed', 'answer_document_id': 'answer'}}, answer]
+                result = api.settle('c', {'id': 's', 'pending': {'request_id': 'r', 'start_revision': 40}}, 'completed')
+                self.assertTrue(result['ok'])
+                self.assertEqual(result['answer'], answer)
+
+    def test_message_version_compatibility_keeps_provenance_and_shape_checks(self):
+        invalid = ({'schema_version': 3}, {'schema_version': True}, {'schema_version': 2.0},
+                   {'request_id': 'another-request'}, {'document_id': 'unreferenced'},
+                   {'value': {'role': 'user', 'content': '用户内容'}},
+                   {'value': {'role': 'assistant', 'content': ['非法类型']}})
+        for change in invalid:
+            with self.subTest(change=change):
+                api = self.make()
+                answer = {'kind': 'message', 'schema_version': 2, 'document_id': 'answer',
+                          'request_id': None, 'revision': 43,
+                          'value': {'role': 'assistant', 'content': '当前答复'}, **change}
+                api.documents = lambda *args: [
+                    {'kind': 'request.status', 'request_id': 'r', 'schema_version': 1,
+                     'value': {'status': 'completed', 'answer_document_id': 'answer'}}, answer,
+                    {'kind': 'message', 'schema_version': 1, 'document_id': 'old',
+                     'request_id': 'old-request', 'revision': 39,
+                     'value': {'role': 'assistant', 'content': '旧答复'}}]
+                result = api.settle('c', {'id': 's', 'pending': {'request_id': 'r', 'start_revision': 40}}, 'completed')
+                self.assertIsNone(result['answer'])
+                self.assertEqual(result['error']['code'], 'NO_PUBLIC_RESPONSE')
+
     def test_invalid_cursor_is_rejected(self):
         api = self.make()
         api.api = lambda *a, **k: {'revision': 8, 'documents': [], 'next_cursor': 5}

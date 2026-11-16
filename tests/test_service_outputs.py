@@ -15,6 +15,61 @@ import cards
 import service
 
 class OutputTests(unittest.TestCase):
+    def test_invalid_output_directory_is_rejected_before_submission(self):
+        class Stub:
+            def send(self, *args):
+                raise AssertionError('invalid output path must not submit a business request')
+
+        for value in (123, False, None, '', '  ', [], {}):
+            with self.subTest(out_dir=value):
+                with self.assertRaises(client.ClientError) as caught:
+                    service.handle(Stub(), {'op': 'send', 'conversation': 'c',
+                                           'text': 'new request', 'out_dir': value}, 'widget')
+                self.assertEqual(caught.exception.code, 'INVALID_REQUEST')
+
+    def test_commerce_families_coexist_without_a_text_answer(self):
+        class Stub:
+            def send(self, *args):
+                return {
+                    'ok': True, 'status': 'completed',
+                    'cart': {'status': 'current', 'items': []},
+                    'address_snapshots': [service.address_cards.unavailable()],
+                    'logistics_snapshots': [service.logistics_cards.unavailable()],
+                    'customer_service_snapshots': [service.customer_service_cards.unavailable()],
+                    'checkouts': [{'schema_version': 1, 'value': {'status': 'unavailable'}}],
+                    'after_sales': [{'schema_version': 1, 'value': {'status': 'unavailable'}}],
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = service.handle(Stub(), {'op': 'send', 'conversation': 'coexist',
+                                            'text': '查询各组件'}, 'widget', directory)
+            for family in ('cart', 'address', 'logistics', 'customer_service', 'checkout', 'after_sale'):
+                with self.subTest(family=family):
+                    self.assertEqual(output[family + '_fragment_file'], output[family + '_file'])
+                    self.assertTrue(Path(output[family + '_file']).is_file())
+            self.assertNotIn('answer_file', output)
+            self.assertNotIn('presentation_errors', output)
+
+    def test_v2_text_only_result_writes_current_answer_without_a_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            api = client.Client('https://control.test', 'agent', client.Store(str(Path(d) / 'state')))
+            text = '该状态下未查到订单，可以继续查询最近订单。'
+            api.documents = lambda *args: [
+                {'kind': 'request.status', 'schema_version': 1, 'request_id': 'r',
+                 'value': {'status': 'completed', 'answer_document_id': 'answer'}},
+                {'kind': 'message', 'schema_version': 2, 'document_id': 'answer',
+                 'request_id': None, 'revision': 43,
+                 'value': {'role': 'assistant', 'content': text}}]
+            api.send = lambda *args: api.settle('c', {
+                'id': 's', 'pending': {'request_id': 'r', 'start_revision': 40}}, 'completed')
+            output = service.handle(api, {'op': 'send', 'conversation': 'c',
+                                         'text': '查我已发货订单的物流'}, 'widget', str(Path(d) / 'out'))
+            self.assertTrue(output['ok'])
+            self.assertEqual(output['status'], 'completed')
+            self.assertEqual(Path(output['answer_file']).read_text(encoding='utf8').strip(), text)
+            self.assertNotIn('logistics_file', output)
+            self.assertNotIn('error', output)
+
     def test_cart_and_products_follow_each_format(self):
         item = {'title': '推荐商品', 'rank': 1, 'price': '29.9', 'url': None, 'thumbnail': ''}
         cart = {'status': 'current', 'items': [{'sku_id': 's', 'title': '<script> & 面膜',
@@ -237,6 +292,52 @@ class OutputTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
 
+    @unittest.skipIf(os.name == 'nt', 'Unix permissions')
+    def test_existing_custom_output_parent_permissions_are_preserved(self):
+        for mode in (0o755, 0o775, 0o700):
+            with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as directory:
+                shared = Path(directory) / 'shared'
+                shared.mkdir()
+                shared.chmod(mode)
+                target = shared / 'answer.md'
+                target.write_text('previous output', encoding='utf8')
+                target.chmod(0o644)
+                output = {'answer': 'private replacement'}
+                service.write_outputs(output, {'conversation': 'c', 'answer_path': str(target)}, None)
+                self.assertEqual(shared.stat().st_mode & 0o777, mode)
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(target.read_text(encoding='utf8'), 'private replacement')
+
+    @unittest.skipIf(os.name == 'nt', 'Unix permissions')
+    def test_new_output_directory_chain_is_private_with_permissive_umask(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ancestor = Path(directory)
+            ancestor.chmod(0o755)
+            target = ancestor / 'new-parent' / 'new-child' / 'answer.md'
+            previous_umask = os.umask(0)
+            try:
+                output = {'answer': 'private'}
+                service.write_outputs(output, {'conversation': 'c', 'answer_path': str(target)}, None)
+            finally:
+                os.umask(previous_umask)
+            self.assertEqual(ancestor.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(target.parent.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    @unittest.skipIf(os.name == 'nt', 'Unix permissions')
+    def test_reused_default_output_directory_keeps_existing_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = {'answer': 'first'}
+            service.write_outputs(first, {'conversation': 'c'}, directory)
+            parent = Path(first['answer_file']).parent
+            parent.chmod(0o755)
+            second = {'answer': 'second'}
+            service.write_outputs(second, {'conversation': 'c'}, directory)
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+            self.assertNotEqual(first['answer_file'], second['answer_file'])
+            self.assertEqual(Path(second['answer_file']).stat().st_mode & 0o777, 0o600)
+
     def test_untrusted_thumbnail_never_fetches(self):
         with patch('urllib.request.build_opener', side_effect=AssertionError('network')):
             for url in ('http://127.0.0.1/private', 'https://evil.example/x', 'data:image/svg+xml,x'):
@@ -271,7 +372,7 @@ class OutputTests(unittest.TestCase):
 
     def test_region_lookup_checks_complete_parent_path(self):
         import region_lookup
-        data = json.loads(region_lookup.DATA_PATH.read_text(encoding='utf8'))
+        data = json.loads((region_lookup.SKILL_DIR / 'data' / 'regions-pre.json').read_text(encoding='utf8'))
         result = region_lookup.lookup({'environment': 'pre', 'op': 'resolve', 'names': ['北京市', '北京市', '东城区']}, data)
         self.assertEqual(result['ids'], ['11', '1101', '110101'])
         self.assertEqual(region_lookup.lookup({'environment': 'pre', 'op': 'resolve', 'ids': result['ids']}, data)['names'], result['names'])

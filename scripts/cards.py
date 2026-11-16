@@ -7,6 +7,7 @@ widget 模式将缩略图压缩后以内联 data URI 写入 HTML。
 """
 import base64
 import html
+import os
 import re
 import sys
 import time
@@ -14,12 +15,16 @@ import threading
 import unicodedata
 import urllib.request
 import urllib.parse
+import commerce_ui
 
 
 CARD_KIND_PREFIX = 'filtalgo.shopping.block:'
 CARD_SCHEMAS = ('filtmall.product-card/v1', 'filtmall.product-card/v2')
 LIST_SCHEMAS = ('filtmall.products/v1', 'filtmall.products/v2')
-DEFAULT_URL_BASE = 'https://m.filtalgo.com/pages/goods/product/detail'
+BUYER_MOBILE_ORIGIN = os.environ.get('FILTALGO_BUYER_MOBILE_ORIGIN', 'https://m.filtalgo.com')
+if BUYER_MOBILE_ORIGIN not in ('https://m.filtalgo.com', 'https://pre-m.filtalgo.com', 'https://dev-m.filtalgo.com'):
+    raise ValueError('FILTALGO_BUYER_MOBILE_ORIGIN must be a trusted buyer mobile HTTPS origin')
+DEFAULT_URL_BASE = BUYER_MOBILE_ORIGIN + '/pages/goods/product/detail'
 IMAGE_MAX_BYTES = 12 * 1024
 IMAGE_MAX_SIDE = 160
 
@@ -278,30 +283,7 @@ def referenced(card, text):
 
 
 def theme_vars(theme):
-    light = {
-        '--fcard-fg': 'var(--color-text-primary,#111)',
-        '--fcard-muted': 'var(--color-text-secondary,#6b6b66)',
-        '--fcard-line': 'var(--color-border-tertiary,rgba(0,0,0,.14))',
-        '--fcard-surface': 'var(--color-background-primary,#fff)',
-        '--fcard-surface2': 'var(--color-background-secondary,#f6f6f3)',
-        '--fcard-price': '#A32D2D',
-        '--fcard-price-bg': '#FCEBEB',
-    }
-    dark = {
-        '--fcard-fg': '#ECEBE6',
-        '--fcard-muted': '#A9A79F',
-        '--fcard-line': 'rgba(255,255,255,.16)',
-        '--fcard-surface': '#1E1E1C',
-        '--fcard-surface2': '#2A2A27',
-        '--fcard-price': '#F09595',
-        '--fcard-price-bg': '#501313',
-    }
-    if theme == 'dark':
-        return dark
-    if theme == 'light':
-        return light
-    return {**light, '--fcard-price': 'var(--fcard-price-auto,#A32D2D)',
-            '--fcard-price-bg': 'var(--fcard-price-bg-auto,#FCEBEB)'}
+    return commerce_ui.theme_vars(theme, 'fcard', 'price')
 
 
 def image_type(data, fallback):
@@ -445,17 +427,16 @@ def render_widget(cards, meta, theme, images=True):
     style_vars = ';'.join('%s:%s' % (k, v) for k, v in theme_vars(theme).items())
     dark_rule = ''
     if theme == 'auto':
-        dark_rule = ('@media (prefers-color-scheme:dark){.fcard-root{--fcard-price-auto:#F09595;'
-                     '--fcard-price-bg-auto:#501313}}')
+        dark_rule = commerce_ui.dark_rule('.fcard-root', 'fcard', 'price')
     head_style = ('position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap')
     names = '、'.join(c['title'] for c in cards[:3])
     summary = '共 %d 件商品：%s%s' % (len(cards), names, '等' if len(cards) > 3 else '')
-    out = ['<style>.fcard-root{%s;font-family:var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}'
+    out = ['<style>.fcard-root{%s;--commerce-card-radius:var(--border-radius-lg,12px);font-family:%s;color:var(--fcard-fg)}'
            '.fcard-root .fcard-t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}'
            '.fcard-root .fcard-o{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}'
            '.fcard-root .fcard-r{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}'
            '.fcard-root a{text-decoration:none;color:inherit}'
-           '.fcard-root a:hover .fcard-go{text-decoration:underline}%s</style>' % (style_vars, dark_rule)]
+           '.fcard-root a:hover .fcard-go{text-decoration:underline}%s</style>' % (style_vars, commerce_ui.FONT, dark_rule)]
     out.append('<div class="fcard-root" style="display:flex;flex-direction:column;gap:10px">')
     out.append('<h2 style="%s">%s</h2>' % (head_style, html.escape(summary)))
     for card in cards:
@@ -537,9 +518,8 @@ def render_widget(cards, meta, theme, images=True):
                ('<span style="display:flex;gap:6px;flex-wrap:wrap">%s</span>' % chip_html) if chip_html else '',
                html.escape(card['title']), subtitle_html, price_html, origin_html,
                overview_html, reason_html, brand_note_html, footer_html))
-        card_html = ('<div style="display:flex;gap:12px;padding:12px;border-radius:var(--border-radius-lg,12px);'
-                     'border:0.5px solid var(--fcard-line);background:var(--fcard-surface)">%s%s</div>'
-                     % (thumb_html, body))
+        card_html = ('<div style="display:flex;gap:12px;%s">%s%s</div>'
+                     % (commerce_ui.card_style('fcard'), thumb_html, body))
         if card.get('url'):
             card_html = ('<a href="%s" target="_blank" rel="noopener noreferrer" '
                          'style="display:block">%s</a>'

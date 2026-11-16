@@ -8,7 +8,7 @@ Filtmall Shopping is Filtalgo's hosted shopping Agent Skill. Users can describe 
 
 This package uses the **production environment** by default. Member operations require separate authorization, and order submission and payment require user confirmation.
 
-The current version is **2.1.2**, published as [GitHub Release v2.1.2](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.1.2). The `metadata.version` in `SKILL.md` is `2.1.2`, and the matching release/tag is `v2.1.2`.
+The current version is **2.2.0**, published as [GitHub Release v2.2.0](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.2.0). The `metadata.version` in `SKILL.md` is `2.2.0`, and the matching release/tag is `v2.2.0`.
 
 ## Installation
 
@@ -97,12 +97,16 @@ An explicitly specified path can overwrite an existing file; choose different fi
 
 If the network is interrupted or the result is unknown, use `resume` within the same conversation to check the original request; do not automatically resubmit it. Use `cancel` to stop a request and `clear` to clear a conversation. See [SKILL.md](SKILL.md) for the complete request, authorization, address, and presentation rules.
 
+## Updates
+
+The service checks the latest stable GitHub Release before each valid send. It reports available updates without automatically installing them. Update through the original installation channel after resolving any pending request; keep the bundled third_party directory when copying the Skill.
+
 ## User Control and Data Boundaries
 
 - Obtain explicit user consent before modifying the shopping cart, addresses, or orders, or initiating after-sales requests.
 - Users complete authorization and payment on the corresponding pages. Do not treat a guest identity as member authorization or fabricate payment links or success statuses.
 - Credentials and unresolved requests are stored in the host's private state directory and must not be included in model messages or logs.
-- The bundled address region data is a snapshot of the pre environment and may only be queried when pre is explicitly selected. It must not be used for production addresses or to infer production region IDs.
+- Bundled production and pre-production region snapshots are selected by environment; never mix IDs between environments.
 - A completed status does not mean payment succeeded. Order and payment outcomes are determined by the actual results from business services.
 
 ## Directory Structure
@@ -114,8 +118,9 @@ scripts/service.py       # Entry point for single-call and persistent service mo
 scripts/client.py        # Identity, sessions, and request recovery
 scripts/cards.py         # Product card rendering
 scripts/commerce_render.py # Cart, checkout, and after-sales rendering
-scripts/region_lookup.py # Region lookup for the pre environment
-data/regions-pre.json    # Region data snapshot for the pre environment
+scripts/region_lookup.py # Environment-specific region lookup
+data/regions-pre.json    # Pre-production region snapshot
+data/regions-prod.json   # Production region snapshot
 agents/openai.yaml       # Host display metadata
 ```
 

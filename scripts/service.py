@@ -32,15 +32,20 @@ sys.path.insert(0, str(SKILL_DIR / 'scripts'))
 
 import cards  # noqa: E402
 import client  # noqa: E402
+import address_cards  # noqa: E402
+import logistics_cards  # noqa: E402
+import customer_service_cards  # noqa: E402
+import commerce_ui  # noqa: E402
 import commerce_render  # noqa: E402
+from update_check import UpdateChecker  # noqa: E402
 
 ClientError = client.ClientError
 
 PROTOCOL = 1
 FORMATS = ('widget', 'html', 'md')
-OPS = ('send', 'resume', 'cancel', 'clear', 'auth-reset', 'status', 'ping')
+OPS = ('send', 'resume', 'cancel', 'clear', 'auth-reset', 'revoke-authorization', 'logout', 'status', 'ping')
 # 请求里可对单个产物指定完整文件路径，覆盖默认目录命名。
-OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path', 'cart_path', 'checkout_path', 'after_sale_path')
+OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path', 'cart_path', 'checkout_path', 'after_sale_path', 'address_path', 'logistics_path', 'customer_service_path')
 
 
 def state_directory(args):
@@ -71,13 +76,13 @@ def write_heartbeat(path):
     tmp.replace(path)
 
 
-def run_request(client, request, default_format, default_out_dir=None, heartbeat_path=None):
+def run_request(client, request, default_format, default_out_dir=None, heartbeat_path=None, update_checker=None):
     """请求放在线程里跑：单次请求崩溃不会带走进程，超时也只影响这一条。"""
     box = {}
 
     def target():
         try:
-            box['ok'] = handle(client, request, default_format, default_out_dir)
+            box['ok'] = handle(client, request, default_format, default_out_dir, update_checker)
         except BaseException as exc:  # 线程里必须兜住所有异常；可预期的 ClientError 不刷栈
             if not isinstance(exc, ClientError):
                 traceback.print_exc(file=sys.stderr)
@@ -133,12 +138,18 @@ render_cart = commerce_render.render_cart
 
 
 def html_page(fragment, title):
-    return '<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title></head><body>\n%s\n</body></html>\n' % (html.escape(title), fragment)
+    return commerce_ui.html_page(fragment, title)
 
 
 def render(result, fmt, max_cards, all_cards=False):
     budget = cards.ImageBudget()
     out = {'answer': answer_text(result), '_format': fmt, '_image_budget': budget}
+    if 'customer_service_snapshots' in result:
+        out['customer_service_status'], out['customer_service_count'], out['customer_service_content'] = customer_service_cards.render(result['customer_service_snapshots'], fmt)
+    if 'logistics_snapshots' in result:
+        out['logistics_status'], out['logistics_count'], out['logistics_content'] = logistics_cards.render(result['logistics_snapshots'], fmt)
+    if 'address_snapshots' in result:
+        out['address_status'], out['address_content'] = address_cards.render(result['address_snapshots'], fmt)
     if 'cart' in result:
         try:
             out['cart_status'], out['cart_content'] = render_cart(result['cart'], fmt, budget)
@@ -200,10 +211,17 @@ def write_outputs(payload, request, default_out_dir):
     for key in OUTPUT_PATH_KEYS:
         if key in request:
             custom[key] = request[key]
+    def private_directory(path):
+        try:
+            path.mkdir(mode=0o700)
+        except FileNotFoundError:
+            private_directory(path.parent)
+            private_directory(path)
+        except FileExistsError:
+            if not path.is_dir():
+                raise
     def private_write(target, content):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if os.name != 'nt':
-            target.parent.chmod(0o700)
+        private_directory(target.parent)
         fd, temporary = tempfile.mkstemp(dir=target.parent, prefix='.commerce-')
         try:
             with os.fdopen(fd, 'w', encoding='utf8') as stream:
@@ -234,10 +252,10 @@ def write_outputs(payload, request, default_out_dir):
             payload['presentation_status'] = 'failed'
             payload.setdefault('presentation_errors', []).append('output_write_failed')
             return False
-    for field in ('cart', 'checkout', 'after_sale'):
+    for field in ('cart', 'checkout', 'after_sale', 'address', 'logistics', 'customer_service'):
         if field + '_content' not in payload:
             continue
-        target = target_path(field + '_path', field.replace('_', '-') + ('.html' if fmt in ('widget', 'html') else '.md'))
+        target = target_path(field + '_path', ('addresses' if field == 'address' else field.replace('_', '-')) + ('.html' if fmt in ('widget', 'html') else '.md'))
         if save(target, payload.pop(field + '_content')):
             payload[field + '_file'] = str(target)
             if fmt == 'widget': payload[field + '_fragment_file'] = str(target)
@@ -283,7 +301,23 @@ def write_outputs(payload, request, default_out_dir):
                      ensure_ascii=False), file=sys.stderr)
 
 
-def handle(client, request, default_format, default_out_dir=None):
+def handle(client, request, default_format, default_out_dir=None, update_checker=None):
+    # 更新信息只属于当前请求；已知业务错误保留原 code/message 和本轮检查结果。
+    context = {}
+    try:
+        payload = _handle(client, request, default_format, default_out_dir, update_checker, context)
+    except ClientError as exc:
+        if 'skill_update' in context:
+            exc.skill_update = context['skill_update']
+        elif hasattr(exc, 'skill_update'):
+            del exc.skill_update
+        raise
+    if 'skill_update' in context:
+        payload['skill_update'] = context['skill_update']
+    return payload
+
+
+def _handle(client, request, default_format, default_out_dir, update_checker, context):
     op = request.get('op')
     conversation = request.get('conversation')
     if op == 'ping':
@@ -307,7 +341,7 @@ def handle(client, request, default_format, default_out_dir=None):
         for key in ('wait', 'all', 'allow_repeat', 'force'):
             if key in request and not isinstance(request[key], bool):
                 raise ClientError('INVALID_REQUEST', key + ' 必须是布尔值。')
-        for key in OUTPUT_PATH_KEYS:
+        for key in ('out_dir',) + OUTPUT_PATH_KEYS:
             if key in request and (not isinstance(request[key], str) or not request[key].strip()):
                 raise ClientError('INVALID_REQUEST', key + ' 必须是非空路径。')
         if 'out_dirs' in request:
@@ -326,6 +360,11 @@ def handle(client, request, default_format, default_out_dir=None):
         if not isinstance(text, str) or not text.strip():
             raise ClientError('INVALID_TEXT', 'send 需要非空 text。')
         wait = request.get('wait', True) is not False
+        if update_checker is not None:
+            try:
+                context['skill_update'] = update_checker.check(conversation)
+            except Exception:
+                context['skill_update'] = {'status': 'unknown', 'notify': False, 'reason': 'check_failed'}
         result = client.send(conversation, text, wait, timeout,
                              request.get('allow_repeat') is True, request.get('force') is True)
     elif op == 'resume':
@@ -336,6 +375,10 @@ def handle(client, request, default_format, default_out_dir=None):
         result = client.clear(conversation)
     elif op == 'auth-reset':
         result = client.reset_authorization(conversation)
+    elif op == 'revoke-authorization':
+        result = client.revoke_authorization(conversation)
+    elif op == 'logout':
+        result = client.logout(conversation)
     elif op == 'status':
         value = client.conversation(conversation)
         out = {'ok': True, 'status': 'pending' if value.get('pending') else value.get('last_status', 'idle'),
@@ -347,7 +390,7 @@ def handle(client, request, default_format, default_out_dir=None):
     for key in ('authorization_url', 'message', 'error', 'presentation_status'):
         if result.get(key):
             payload[key] = result[key]
-    if (result.get('ok', True) and (result.get('answer') is not None or result.get('context_documents') or result.get('region_selector'))) or 'cart' in result or any(result.get(k) for k in ('checkouts', 'after_sales', 'after_sale_lists')):
+    if (result.get('ok', True) and (result.get('answer') is not None or result.get('context_documents') or result.get('region_selector'))) or any(k in result for k in ('cart', 'address_snapshots', 'logistics_snapshots', 'customer_service_snapshots')) or any(result.get(k) for k in ('checkouts', 'after_sales', 'after_sale_lists')):
         rendered = render(result, fmt, request.get('max') or 0, bool(request.get('all')))
         payload.update(rendered)
         if result.get('region_selector'):
@@ -357,6 +400,16 @@ def handle(client, request, default_format, default_out_dir=None):
             payload['payment_links'] = payment_links
         write_outputs(payload, request, default_out_dir)
     return payload
+
+
+def update_timeout(value):
+    try:
+        timeout = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError('更新检查超时必须是大于 0 且不超过 30 秒的有限数值。')
+    if not math.isfinite(timeout) or not 0 < timeout <= 30:
+        raise argparse.ArgumentTypeError('更新检查超时必须是大于 0 且不超过 30 秒的有限数值。')
+    return timeout
 
 
 def main():
@@ -369,11 +422,35 @@ def main():
     parser.add_argument('--heartbeat', default=None, help='心跳文件路径；默认写到状态目录的 service-heartbeat.json')
     parser.add_argument('--out-dir', default=None, help='每轮卡片与正文的输出目录；请求里可用 out_dir 覆盖')
     parser.add_argument('--once', action='store_true', help='读取一条 JSON 请求并输出一条应答后退出；省略 op 时默认为 send')
+    parser.add_argument('--update-timeout', type=update_timeout, default=2.0, help='更新检查超时秒数，默认 2；必须大于 0 且不超过 30')
+    parser.add_argument('--update-action', choices=('check', 'shown', 'later', 'ignore', 'reset'), help='独立检查更新或记录已提醒／稍后／忽略／重置后退出，不读取业务请求')
+    parser.add_argument('--update-version', help='提醒选择对应的正式版本，例如 v2.10.0')
+    parser.add_argument('--update-conversation', help='更新检查或提醒选择对应的 conversation')
     args = parser.parse_args()
+    if not args.update_action and (args.update_version is not None or args.update_conversation is not None):
+        parser.error('--update-version 和 --update-conversation 需要同时指定 --update-action。')
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding='utf8', errors='backslashreplace', newline='\n')
+    if args.update_action:
+        # 使用与 send 相同的状态目录；不构造业务身份、不写心跳、不读取 stdin。
+        try:
+            _, _, directory = state_directory(args)
+            checker = UpdateChecker(SKILL_DIR, directory, args.user_key, args.update_timeout)
+            response = ({'ok': True, 'skill_update': checker.check(args.update_conversation)}
+                        if args.update_action == 'check' else
+                        checker.record(args.update_action, args.update_version, args.update_conversation))
+        except ClientError as exc:
+            response = {'ok': False, 'error': {'code': exc.code, 'message': str(exc)}}
+        except Exception:
+            response = {'ok': False, 'error': 'update_management_failed'}
+        sys.stdout.write(json.dumps(response, ensure_ascii=False) + '\n')
+        sys.stdout.flush()
+        if not response.get('ok'):
+            raise SystemExit(1)
+        return
     api = build_client(args)
     _, _, directory = state_directory(args)
+    update_checker = UpdateChecker(SKILL_DIR, directory, args.user_key, args.update_timeout)
     heartbeat_path = Path(args.heartbeat) if args.heartbeat else directory / 'service-heartbeat.json'
     HEARTBEAT['started_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     write_heartbeat(heartbeat_path)
@@ -390,9 +467,11 @@ def main():
                 raise ClientError('INVALID_REQUEST', '请求必须是 JSON 对象。')
             if args.once and 'op' not in request:
                 request['op'] = 'send'
-            response = run_request(api, request, args.format, args.out_dir, heartbeat_path)
+            response = run_request(api, request, args.format, args.out_dir, heartbeat_path, update_checker)
         except ClientError as exc:
             response = {'ok': False, 'error': {'code': exc.code, 'message': str(exc)}}
+            if hasattr(exc, 'skill_update'):
+                response['skill_update'] = exc.skill_update
         except BaseException as exc:  # 循环本身不能退出，否则后续请求全部丢失
             traceback.print_exc(file=sys.stderr)
             HEARTBEAT['restarts'] = HEARTBEAT.get('restarts', 0) + 1
