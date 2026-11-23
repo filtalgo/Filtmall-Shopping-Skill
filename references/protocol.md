@@ -15,6 +15,7 @@
 | `latest_version` | 正式 Release 的三段版本号，去除可选的 `v` 前缀；比较成功时提供 |
 | `release_tag` | 原始 Release tag，保留可选的 `v`，用于链接、记录选择及固定安装版本 |
 | `release_url` | 固定官方仓库对应原始 tag 的 Release 页面；比较成功时提供 |
+| `host` | 可选。宿主枚举 `today\|workbuddy\|doubao\|qianwen\|lingguang`，缺省 `default`；识别到宿主时格式由路由表固定，`default` 沿用 `--format`；同一会话首次确定后锁定 |
 | `checked_at` | 本次检查的 UTC 时间，ISO 8601；异常兜底结果可能缺失 |
 | `notify` | 仅 `available` 且未被提醒选择抑制时为 `true` |
 | `message` | 发现新版时的简短说明，可缺失 |
@@ -70,11 +71,11 @@ Authorization: Bearer <平台访客 token>
 - 每个 document 有 `document_id`、`kind`、`schema_version`、`request_id`、`revision`、`display_order`、`deleted`、`value`。
 - 找当前 request_id 对应的 `kind="request.status"`，再用 `value.answer_document_id` 找真正的答复文档。答复自身的 `request_id` 可能为空，不能只过滤 request_id 而丢掉答案。
 - 当前 `request.status.answer_document_id` 引用的 `kind="message"` 支持整数 `schema_version=1/2`；`value.role="assistant"` 且为字符串的 `value.content` 是当前答复。答复的 `request_id` 只能为空或等于本轮请求；未知版本、布尔/浮点版本、外轮请求和非法内容均拒绝，不用历史答复补齐。
-- `filtalgo.shopping.block:*` 的 `value.block` 包含 `schema`、`payload`、`fallbackText`。商品 schema 常见 `filtmall.products/v1`、`filtmall.products/v2`、`filtmall.product-card/v1` 或 `filtmall.product-card/v2`。它们是会话资料，可能包含上轮商品，只展示与当前答复引用一致的商品。
+- `filtalgo.shopping.block:*` 的 `value.block` 包含 `schema`、`payload`、`fallbackText`。商品 schema 常见 `filtmall.products/v1`、`filtmall.products/v2`、`filtmall.product-card/v1` 或 `filtmall.product-card/v2`。客户端仅消费本轮 revision 边界之后的文档：答复明确点名时只展示被引用项；若答复为简短肯定导语未逐一点名，则保留本轮明确发布的 `filtmall.product-card/v1|v2` 推荐卡，不外泄未选中的 `filtmall.products` 列表或历史轮次商品。
 - `filtalgo.commerce.cart` v1 是会话内最新购物车公开快照：`value.status` 为 `current` 或 `unavailable`，`items` 包含 `sku_id`、`quantity`、`checked`，以及可选的 `goods_id`、`title`、`price`、`thumbnail`。仅展示本轮 revision 边界之后的最新版本；`unavailable` 不代表空购物车，写操作可能已生效，需先查询确认。HTML 购物车复用商品图片的安全下载和内嵌规则，图片不可用时展示占位图。
 - 不展示 deleted 文档、用户输入、进度或旧答复作为本轮最终输出。没有可展示答案时明确说明，不伪造。
 
-客户端将当前权威答复放在 stdout 的 `answer`，卡片及授权资料放在 `context_documents`，不输出凭据。当前实现轮询公开快照，不声称已经消费实时 SSE。
+`scripts/service.py` 默认使用 `format="md"`，并统一输出 `display_file`（UTF-8 `.display.md`，支持 `display_path` / `out_dirs.display_path` 自定义路径），按固定顺序合并本轮权威答复、单列商品信息及已校验的商城业务 Markdown 段。没有远端文本答复但本轮存在合法业务快照时仍生成 `display_file`；显式请求 `widget` 或 `html` 时也同时保留 `display_file`，增强渲染失败不影响已生成的 `display_file`。`answer_file`、`html_file`、`cart_file` 及各业务 `*_fragment_file` / `*_page_file` 继续按原语义兼容返回。轻量客户端 `control_agent.py` 将当前权威答复放在 stdout 的 `answer`，卡片及授权资料放在 `context_documents`，不输出凭据。当前实现轮询公开快照，不声称已经消费实时 SSE。
 
 兼容已部署的 Shopping 扩展：若 completed 的 `request.status.answer_document_id` 为空，客户端仅聚合**本轮提交前 revision 之后**的 schema1 `filtalgo.shopping.text`，标为 `source="current-turn-public-text"`。不会使用 activity 进度、旧轮次文本、用户消息或 deleted 文档；显式指向非法答复的引用也不会触发此回退。提交前的 revision 与请求 ID 一起私有保存，恢复不会改变边界。`waiting` 时仅消费本轮 revision 之后且请求 ID 匹配或为空的会员授权文档，通过 Control 设备授权接口获取用户验证链接，并在私有状态中保存 state 和加密 exchange；这些数据不输出。授权后调用 `resume`（遵守轮询间隔），用稳定 request_id 继续原任务。待授权或待恢复时，`send` 返回 `RESUME_REQUIRED` 且不提交新消息；宿主应保留原文。完成状态兜底取得的 delegation_id 先保存再清除待授权状态，以支持后续撤销。
 
@@ -118,10 +119,14 @@ current 还须有远端的 `authorization_binding`（完整匹配64位小写十�
 ## 能力边界
 
 访客可以委托已开放的 Agent，不获得会员账户和交易权限。会员业务使用平台已有的用户授权流程并独立验收；不要把平台 guest bearer、CLI agent_session_id 和商城 accessToken 混用。管理/部署接口不属于外部 Skill 接入流程。
-# 客服入口卡片
+
+## 客服入口卡片
 
 `filtalgo.commerce.customer_service` v1 按当前请求及咨询对象选择最高 revision；未知版本、过期或非法数据不回退历史入口。支持 product/order/after_sale/general，只展示业务返回的 pc_web/mobile_h5 HTTPS 链接。链接仅为咨询入口，不自动打开，不表示已接通或在线。
 
-内部 `customer_service_snapshots` 保留授权验证字段；文件只展示入口，不输出 authorization_binding、authorization_expires_at、link_origins、publication。结果提供 customer_service_status、customer_service_count、customer_service_file，widget/html 分别另有 customer_service_fragment_file/customer_service_page_file。可信宿主可传 customer_service_path 或 out_dirs.customer_service_path；仅有客服无正文也会写私有文件。
+内部 `customer_service_snapshots` 保留授权验证字段；文件只展示入口，不输出 authorization_binding、authorization_expires_at、link_origins、publication。结果提供 customer_service_status、customer_service_count、customer_service_file（`md` 输出标准 Markdown 链接并合入 `display_file`），widget/html 分别另有 customer_service_fragment_file/customer_service_page_file。可信宿主可传 customer_service_path 或 out_dirs.customer_service_path；仅有客服无正文也会写私有文件。
 
 宿主支持对话内联时，客服与地址采用同一策略：`format=widget`后把本轮`customer_service_fragment_file`原样交给实际内联展示能力，嵌入答复正文下方。文件后缀在widget/html两种模式下都可能为`.html`，不据后缀推断展示位置。仅打开浏览器/侧边文件或给出下载链接不等于内联；独立页面仅用于用户指定或宿主确认无法内联的情况。授权阻断且没有本轮产物时，不展示历史页代替结果。
+## Markdown 链接解析（2.3.3）
+
+公开会话业务仍只使用 Control。Markdown 产物落盘前，额外匿名调用 `https://filtalgo.com/gateway/mcp` 的 `shopping.navigation.resolve_url_link`，参数为 `{"url":"原始生产 H5 链接"}`，使用 MCP `2026-07-28`。不发送访客 token、会员 session 或 Control 凭据，不直连后端 service，不跟随重定向。仅接受 HTTPS 的 `m.filtalgo.com` H5 地址和 `wxaurl.cn`／`wxmpurl.cn` 小程序地址；无效响应或错误保留原链接。预发、开发链接不发送到生产 Gateway。

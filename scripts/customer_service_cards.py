@@ -3,7 +3,7 @@ import html
 import json
 import re
 import time
-from urllib.parse import urlsplit, parse_qsl
+from urllib.parse import urlsplit, parse_qsl, quote
 import commerce_ui
 from logistics_cards import text, escaped
 
@@ -142,7 +142,7 @@ def render(snapshots, fmt='md'):
             url = html.escape(c['url'], quote=True)
             link = '<a%s href="%s" target="_blank" rel="noopener noreferrer">%s</a>' % (' class="fm-primary"' if primary else '', url, label)
             card += link
-            lines.append(link)
+            lines.append('[%s](%s)' % (label, quote(c['url'], safe=':/?=&%#@+;,~')))
         note = '打开商城客服页面继续咨询，目标页面可能需要登录。'
         parts.append(card + '</div><p class="fm-caption">%s</p></article>' % note)
         markdown.append('\n\n'.join(lines + [note]))

@@ -115,7 +115,7 @@ class CommerceTests(unittest.TestCase):
             for missing in ('商品金额', '优惠', '运费', '价格待确认', 'cart_PRIVATE'):
                 self.assertNotIn(missing, content)
             if fmt != 'md':
-                for markup in ('<article class="fm-commerce">', 'class="product"', 'class="thumb"', 'data:image/png;base64,'):
+                for markup in ('<article class="fm-commerce">', 'class="product', 'class="thumb"', 'data:image/png;base64,'):
                     self.assertIn(markup, content)
                     self.assertIn(markup, cart_content)
             else:

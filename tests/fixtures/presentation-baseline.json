@@ -1,0 +1,237 @@
+{
+  "baseline_commit": "7742d97",
+  "baseline_skill_version": "2.2.0",
+  "cases": [
+    {
+      "id": "missing_first_turn_links",
+      "scenario": "首次推荐不给商品详情链接（Today 手机等端典型现象）",
+      "attribution_stage": "展示文件拆分 + 默认 widget 提示词",
+      "root_cause": "远端 answer 正文仅包含推荐分析而未逐条重复 H5 URL；旧版默认 format=widget 只把链接写入 fragment_file 和 product_links，宿主不渲染 HTML 且仅读取 answer_file 或用一句摘要回复时，首轮正文丢失真实商品链接。",
+      "result": {
+        "ok": true,
+        "status": "completed",
+        "answer": {
+          "kind": "message",
+          "schema_version": 2,
+          "value": {
+            "role": "assistant",
+            "content": "1. 修护保湿面膜礼盒\n**商品分析**：主打温和补水，单盒 10 片。\n**推荐理由**：日常保湿性价比均衡。\n\n2. 舒缓补水贴片面膜\n**商品分析**：轻薄服帖，单盒 5 片。\n**推荐理由**：适合换季干燥临时补水。"
+          }
+        },
+        "context_documents": [
+          {
+            "document_id": "card-1",
+            "revision": 12,
+            "kind": "filtalgo.shopping.block:filtmall.product-card/v2",
+            "value": {
+              "block": {
+                "schema": "filtmall.product-card/v2",
+                "payload": {
+                  "rank": 1,
+                  "product": {
+                    "goods_id": "G1001",
+                    "sku_id": "S2001",
+                    "title": "修护保湿面膜礼盒",
+                    "price_amount": "69.00",
+                    "original_price_amount": "89.00",
+                    "spec_summary": "10片/盒",
+                    "availability": "in_stock"
+                  },
+                  "recommendation_reason": ""
+                }
+              }
+            }
+          },
+          {
+            "document_id": "card-2",
+            "revision": 13,
+            "kind": "filtalgo.shopping.block:filtmall.product-card/v2",
+            "value": {
+              "block": {
+                "schema": "filtmall.product-card/v2",
+                "payload": {
+                  "rank": 2,
+                  "product": {
+                    "goods_id": "G1002",
+                    "sku_id": "S2002",
+                    "title": "舒缓补水贴片面膜",
+                    "price_amount": "45.50",
+                    "spec_summary": "5片/盒",
+                    "availability": "in_stock"
+                  },
+                  "recommendation_reason": ""
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected_urls": [
+        "https://m.filtalgo.com/pages/goods/product/detail?goodsId=G1001&skuId=S2001",
+        "https://m.filtalgo.com/pages/goods/product/detail?goodsId=G1002&skuId=S2002"
+      ]
+    },
+    {
+      "id": "attachment_only_delivery",
+      "scenario": "只发送 md 附件卡而聊天正文无商品与链接（豆包工作 PC 等端典型现象）",
+      "attribution_stage": "提示词摘要规则 + 多产物文件分离",
+      "root_cause": "旧版 SKILL.md 指示“不要整份回显到对话；用一句摘要代替整段长文”，且 md 模式下 answer_file 与 html_file（.cards.md）分离，宿主将文件作为附件投递而正文仅回“已生成”。",
+      "result": {
+        "ok": true,
+        "status": "completed",
+        "answer": {
+          "kind": "message",
+          "schema_version": 2,
+          "value": {
+            "role": "assistant",
+            "content": "已按百元以内预算为您筛选温和氨基酸洁面："
+          }
+        },
+        "context_documents": [
+          {
+            "document_id": "card-cleanser-1",
+            "revision": 21,
+            "kind": "filtalgo.shopping.block:filtmall.product-card/v2",
+            "value": {
+              "block": {
+                "schema": "filtmall.product-card/v2",
+                "payload": {
+                  "rank": 1,
+                  "product": {
+                    "goods_id": "G3001",
+                    "sku_id": "S4001",
+                    "title": "氨基酸净润洁面泡沫",
+                    "price_amount": "58.00",
+                    "spec_summary": "150ml/瓶",
+                    "availability": "in_stock"
+                  },
+                  "product_overview": "泡沫绵密易冲洗，配方温和。",
+                  "recommendation_reason": "符合百元内温和洁面需求。"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected_urls": [
+        "https://m.filtalgo.com/pages/goods/product/detail?goodsId=G3001&skuId=S4001"
+      ]
+    },
+    {
+      "id": "wide_table_truncation",
+      "scenario": "多款商品横向宽表展示导致手机端右列被裁切（豆包手机等端典型现象）",
+      "attribution_stage": "宿主回复格式（提示词缺少单列分段禁宽表约束）",
+      "root_cause": "cards.render_markdown() 已是单列分段，但旧版主提示未要求聊天正文保持单列分段且未禁止横向宽表，模型在复述对比结果时自行拼装多列 Markdown 表格。",
+      "result": {
+        "ok": true,
+        "status": "completed",
+        "answer": {
+          "kind": "message",
+          "schema_version": 2,
+          "value": {
+            "role": "assistant",
+            "content": "为您对比以下两款保湿面霜的核心规格与价格差异："
+          }
+        },
+        "context_documents": [
+          {
+            "document_id": "cream-1",
+            "revision": 31,
+            "kind": "filtalgo.shopping.block:filtmall.product-card/v2",
+            "value": {
+              "block": {
+                "schema": "filtmall.product-card/v2",
+                "payload": {
+                  "rank": 1,
+                  "product": {
+                    "goods_id": "G5001",
+                    "sku_id": "S6001",
+                    "title": "神经酰胺修护面霜",
+                    "price_amount": "89.00",
+                    "spec_summary": "50g/罐",
+                    "availability": "in_stock"
+                  },
+                  "recommendation_reason": "干皮日常保湿稳妥。"
+                }
+              }
+            }
+          },
+          {
+            "document_id": "cream-2",
+            "revision": 32,
+            "kind": "filtalgo.shopping.block:filtmall.product-card/v2",
+            "value": {
+              "block": {
+                "schema": "filtmall.product-card/v2",
+                "payload": {
+                  "rank": 2,
+                  "product": {
+                    "goods_id": "G5002",
+                    "sku_id": "S6002",
+                    "title": "角鲨烷清润保湿霜",
+                    "price_amount": "76.00",
+                    "spec_summary": "60g/支",
+                    "availability": "low_stock"
+                  },
+                  "recommendation_reason": "质地更轻盈，克单价更低。"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected_urls": [
+        "https://m.filtalgo.com/pages/goods/product/detail?goodsId=G5001&skuId=S6001",
+        "https://m.filtalgo.com/pages/goods/product/detail?goodsId=G5002&skuId=S6002"
+      ]
+    },
+    {
+      "id": "commerce_snapshot_without_answer",
+      "scenario": "无远端文本答复但本轮存在合法业务快照（购物车/地址/物流/客服）",
+      "attribution_stage": "输出契约缺统一正文入口",
+      "root_cause": "远端未生成 message 正文时旧版不返回 answer_file，宿主需逐一判断 cart_file、address_file、logistics_file 等多个字段。",
+      "result": {
+        "ok": true,
+        "status": "completed",
+        "answer": null,
+        "cart": {
+          "status": "current",
+          "items": [
+            {
+              "sku_id": "S2001",
+              "title": "修护保湿面膜礼盒",
+              "spec": "10片/盒",
+              "quantity": 1,
+              "checked": true,
+              "price": 69.0
+            }
+          ],
+          "cart_url": "https://buyer.filtalgo.com/cart"
+        }
+      },
+      "expected_urls": [
+        "https://m.filtalgo.com/pages/tabbar/cart"
+      ]
+    },
+    {
+      "id": "zero_candidates_empty_search",
+      "scenario": "WorkBuddy 手机零候选独立保留样例（上游检索为空，非展示层缺陷）",
+      "attribution_stage": "公开业务结果（检索/工具链）",
+      "root_cause": "托管 Agent 执行完成但未召回匹配商品，context_documents 为空；展示层必须如实保留空结果说明，不得编造商品或 URL。",
+      "result": {
+        "ok": true,
+        "status": "completed",
+        "answer": {
+          "kind": "message",
+          "schema_version": 2,
+          "value": {
+            "role": "assistant",
+            "content": "当前未找到符合该预算与规格限制的在售商品，您可以放宽预算或调整品类后再试。"
+          }
+        },
+        "context_documents": []
+      },
+      "expected_urls": []
+    }
+  ]
+}

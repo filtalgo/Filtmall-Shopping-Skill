@@ -1,4 +1,4 @@
 interface:
   display_name: "筛电 Agent"
-  short_description: "委托筛电 Agent 查商品；常驻服务直接返回界面卡片"
-  default_prompt: "使用 $filtmall-shopping：优先直接运行 scripts/service.py --once，通过标准输入提交 conversation 和用户文本，等待终态并沿用对话标识。异常或展示失败使用 resume，勿重复提交写操作。不要编写包装器或调用内部客户端。支持内联 HTML 时原样展示本轮 fragment_file、cart_fragment_file、checkout_fragment_file 和 after_sale_fragment_file；正文读取 answer_file。其他宿主选择 html 或 md 并读取对应商品、购物车、结算和售后文件。无正文但有业务文件也是有效结果，缺少本轮产物不借旧文件补齐。支付准备和售后完成不代表付款或退款到账。"
+  short_description: "委托筛电托管 Agent 查商品与购物；默认输出可读 Markdown 正文与真实入口"
+  default_prompt: "使用 $filtmall-shopping：默认运行 scripts/service.py --once --format md，通过标准输入提交独立 conversation 与用户文本。完成后完整读取本轮 display_file，在聊天正文中单列分段呈现商品名称、价格、规格、推荐理由、业务状态和真实链接；不要只发附件、内部路径或“已生成”，不使用横向宽表，也不用摘要删掉商品或支付入口。需要 HTML 卡片再读 references/presentation.md，不猜宿主工具名称；遇到会员授权读 references/authorization.md；超时或未知态读 references/recovery.md 并用 resume 恢复原任务，严禁重复提交写操作。写操作先确认，无明确证据不声称已支付、已退款或已修改。"

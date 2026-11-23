@@ -13,7 +13,7 @@ STYLE = '''<style>
 .fm-commerce .body{padding:2px 16px 12px}.fm-commerce .product{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line-soft)}.fm-commerce .product:first-child{border-top:0}.fm-commerce .thumb{width:40px;height:48px;border-radius:6px;background:var(--skin);display:grid;place-items:center;overflow:hidden;font-size:11px;color:var(--fg-3)}.fm-commerce .thumb img{display:block;width:100%;height:100%;object-fit:contain}.fm-commerce .product b{display:block;font-size:13px;font-weight:600;line-height:1.45}.fm-commerce .price{font-size:13px;color:var(--fg-2);white-space:nowrap}
 .fm-commerce .sub{font-size:12px;color:var(--fg-3)}.fm-commerce .h3{margin:14px 0 8px;font-size:12px;color:var(--fg-2)}.fm-commerce .fees{border-top:1px solid var(--line-soft)}.fm-commerce .line{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:13px;color:var(--fg-2)}.fm-commerce .line.sum{border-top:1px solid var(--line);margin-top:4px;padding-top:11px;color:var(--fg)}.fm-commerce .sum b:last-child{font-size:22px;font-weight:600}
 .fm-commerce .note{margin:12px 0 2px;padding:9px 12px;border-radius:6px;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn);font-size:12px}.fm-commerce .foot{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--line-soft);background:var(--fill)}.fm-commerce .button{display:inline-flex;align-items:center;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:12px;line-height:1.4}.fm-commerce .button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.fm-commerce .event{padding:2px 0 14px 18px;border-left:1px solid var(--line);font-size:13px}.fm-commerce details{border-top:1px solid var(--line-soft);padding:10px 0 2px}.fm-commerce summary{cursor:pointer;font-size:12px;color:var(--fg-2)}
+.fm-commerce .event{padding:2px 0 14px 18px;border-left:1px solid var(--line);font-size:13px}.fm-commerce details{border-top:1px solid var(--line-soft);padding:10px 0 2px}.fm-commerce summary{cursor:pointer;font-size:12px;color:var(--fg-2)}.fm-commerce .product.cart{grid-template-columns:18px 40px minmax(0,1fr) auto}.fm-commerce .tick{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:11px;line-height:1;background:var(--accent);color:#fff;border:1px solid var(--accent)}.fm-commerce .tick.off{background:transparent;border-color:var(--line);color:var(--fg-3)}.fm-commerce .product.unselected{opacity:.55}.fm-commerce .product.unselected b{font-weight:500}.fm-commerce .legend{padding:0 0 10px;font-size:12px;color:var(--fg-3)}
 @media(prefers-color-scheme:dark){.fm-commerce{--fg:var(--color-text-primary,#e8e3db);--fg-2:var(--color-text-secondary,#aaa399);--fg-3:var(--color-text-secondary,#8c867d);--line:var(--color-border-tertiary,#3b3733);--line-soft:var(--color-border-tertiary,#322e2b);--fill:var(--color-background-secondary,#2e2a27);--skin:var(--color-background-secondary,#37322e);--surface:var(--color-background-primary,#252220);--accent:#9fc2ca;--accent-bg:#26343a;--accent-line:#38505a;--warn:#dcc28f;--warn-bg:#332c1f;--warn-line:#4a3f2a}.fm-commerce .button.primary{color:#1d2528}}
 </style>'''
 
@@ -77,7 +77,15 @@ def product_rows(items, fmt, budget, cart=False):
             bits.append('单价 ' + price if price else '价格待确认')
         image = '<img src="%s" alt="">' % escape(images[i]['thumbnail']) if images[i].get('thumbnail') and fmt != 'md' else '暂无图'
         price_html = '<span class="price">%s</span>' % (price or '待确认') if price or cart else ''
-        rows.append('<div class="product"><div class="thumb" aria-hidden="true">%s</div><div><b>%s</b><div class="sub">%s</div></div>%s</div>' % (image, escape(title), escape(' · '.join(bits)), price_html))
+        if cart:
+            checked = bool(item.get('checked'))
+            tick = '<span class="tick%s" aria-hidden="true">%s</span>' % ('' if checked else ' off', '\u2713' if checked else '\u25CB')
+            row_class = 'product cart' + ('' if checked else ' unselected')
+            label = '已选中' if checked else '未选中'
+            rows.append('<div class="%s" title="%s">%s<div class="thumb" aria-hidden="true">%s</div><div><b>%s</b><div class="sub">%s</div></div>%s</div>'
+                        % (row_class, label, tick, image, escape(title), escape(' · '.join(bits)), price_html))
+        else:
+            rows.append('<div class="product"><div class="thumb" aria-hidden="true">%s</div><div><b>%s</b><div class="sub">%s</div></div>%s</div>' % (image, escape(title), escape(' · '.join(bits)), price_html))
         lines.append('- %s：%s' % (md(title), md(' · '.join(bits))))
     body = ''.join(rows[:3])
     if len(rows) > 3:
@@ -251,7 +259,11 @@ def render_cart(value, fmt='md', budget=None):
             selected = [i for i in items if i['checked']]
             summary = '已选 %s 款 / %s 件 · 全车 %s 款 · %s 件' % (len(selected), sum(i['quantity'] for i in selected), len(items), sum(i['quantity'] for i in items))
             rows, lines = product_rows(items, fmt, budget, cart=True)
-            body = '<div class="fees"><div class="line"><b>已选 %s 款 / %s 件</b><span class="sub">全车 %s 款 · %s 件</span></div></div>' % (len(selected), sum(i['quantity'] for i in selected), len(items), sum(i['quantity'] for i in items)) + rows
+            unselected = [i for i in items if not i['checked']]
+            extra = (' · 未选 %s 款' % len(unselected)) if unselected else ''
+            body = ('<div class="fees"><div class="line"><b>已选 %s 款 / %s 件</b><span class="sub">全车 %s 款 · %s 件%s</span></div></div>'
+                    '<div class="legend">\u2713 已选中参与结算　\u25CB 未选中</div>%s') % (
+                len(selected), sum(i['quantity'] for i in selected), len(items), sum(i['quantity'] for i in items), extra, rows)
             markdown = '## 购物车\n\n%s\n\n%s\n' % (summary, '\n'.join(lines))
     links = navigation([{'rel': 'cart', 'href': value.get('cart_url')}]) if valid else []
     footer = ''.join('<a class="button" href="%s" target="_blank" rel="noopener noreferrer">%s ↗</a>' % (escape(url), label) for label, url, _ in links)

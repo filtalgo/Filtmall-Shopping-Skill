@@ -8,6 +8,7 @@ import io
 import zlib
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import time
@@ -149,7 +150,7 @@ class Store:
 
 
 class Client:
-    def __init__(self, origin, agent_id, store, transport=None, user_key='local'):
+    def __init__(self, origin, agent_id, store, transport=None, user_key='local', host='default'):
         url = parse.urlsplit(origin)
         if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
             raise ClientError('INVALID_ORIGIN', 'Control 地址必须是明确的 HTTPS 根地址。')
@@ -157,9 +158,41 @@ class Client:
             raise ClientError('INVALID_AGENT', '需要明确的目标 Agent。')
         self.origin = origin.rstrip('/')
         self.agent_id = agent_id
+        self.host = host
         self.subject = hashlib.sha256(user_key.encode()).hexdigest()
         self.store = store
         self.http = transport or HTTP(self.origin)
+
+    @property
+    def client_id(self):
+        """会话级客户端标识随 host 变化（host 在请求解析后才确定）。"""
+        return self.client_identifier(self.host)
+
+    @staticmethod
+    def client_identifier(host):
+        """会话级客户端标识：filtalgo.skill.<host>，满足远端的字符与长度约束。"""
+        value = re.sub(r'[^A-Za-z0-9_.:-]+', '-', str(host or '')).strip('-')[:40]
+        return 'filtalgo.skill.' + (value or 'default')
+
+    def locked_host(self, key):
+        """读取该会话已锁定的宿主；不存在返回 None。"""
+        with self.store.locked() as state:
+            table = state.get('hosts')
+            value = table.get(key) if isinstance(table, dict) else None
+            return value if isinstance(value, str) and value else None
+
+    def remember_host(self, key, host):
+        """首次确定后锁定该会话的宿主，后续请求不再覆盖。"""
+        if not isinstance(key, str) or not key or not isinstance(host, str) or not host:
+            return
+        with self.store.locked() as state:
+            table = state.get('hosts')
+            if not isinstance(table, dict):
+                table = {}
+                state['hosts'] = table
+            if not table.get(key):
+                table[key] = host
+                self.store.save(state)
 
     def token(self):
         with self.store.locked() as state:
@@ -198,6 +231,27 @@ class Client:
     def path(session_id, suffix=''):
         return '/api/v2/sessions/' + parse.quote(session_id, safe='') + suffix
 
+    def carried_product_documents(self, session_id, request_id, baseline, limit=5):
+        """追问轮没有新商品块时，从会话库取本轮基线之前最近一组商品块。"""
+        if type(baseline) is not int or baseline < 0:
+            return []
+        try:
+            documents = self.documents(session_id, request_id)
+        except ClientError:
+            return []
+        blocks = [d for d in documents
+                  if str(d.get('kind', '')).startswith('filtalgo.shopping.block:')
+                  and isinstance(d.get('revision'), int) and d['revision'] <= baseline
+                  and isinstance(d.get('request_id'), str)]
+        if not blocks:
+            return []
+        groups = {}
+        for document in blocks:
+            groups.setdefault(document['request_id'], []).append(document)
+        latest_key = max(groups, key=lambda key: max(d['revision'] for d in groups[key]))
+        members = sorted(groups[latest_key], key=lambda d: d.get('display_order', 0))
+        return members[:limit]
+
     def send(self, key, text, wait=True, timeout=120, allow_repeat=False, force=False):
         if not text.strip() or len(text.encode()) > 1024 * 1024:
             raise ClientError('INVALID_TEXT', '消息不能为空或超过 1 MiB。')
@@ -221,7 +275,7 @@ class Client:
                 if value.get('pending'):
                     raise ClientError('PENDING_INPUT', '当前会话仍有未核对请求，请先 resume 或 cancel。')
             if not value:
-                result = self.http('POST', '/api/v2/sessions', {'agent_id': self.agent_id, 'title': '外部 Agent 会话', 'client_id': 'filtalgo-public-skill'}, token=token)
+                result = self.http('POST', '/api/v2/sessions', {'agent_id': self.agent_id, 'title': '外部 Agent 会话', 'client_id': self.client_id}, token=token)
                 session_id = result.get('id') or result.get('session_id')
                 if not isinstance(session_id, str) or not session_id:
                     raise ClientError('INVALID_SESSION', '创建会话未返回有效 ID。')
@@ -716,6 +770,9 @@ class Client:
         selectors = [d for d in docs if d.get('kind') == 'filtalgo.commerce.region_selector' and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
         selectors.sort(key=lambda d: d['revision'])
         result = {'ok': status in ('completed', 'waiting'), 'status': status, 'conversation': key, 'answer': answer, 'context_documents': context}
+        if isinstance(baseline, int) and not any(str(d.get('kind', '')).startswith('filtalgo.shopping.block:') for d in context):
+            # 只挂定位信息；真正读库推迟到宿主需要卡片时，避免每轮多一次全量请求。
+            result['carry'] = {'session_id': value['id'], 'request_id': request_id, 'baseline': baseline}
         # The cart is a stable, conversation-scoped document. Only its newest
         # revision from this turn is safe to present, including invalidations.
         carts = [d for d in docs if d.get('kind') == 'filtalgo.commerce.cart'

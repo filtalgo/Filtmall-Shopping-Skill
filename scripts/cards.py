@@ -90,6 +90,7 @@ def pick(doc, payload, product, schema, index):
     return {
         'schema': schema,
         'document_id': doc.get('document_id'),
+        'request_id': doc.get('request_id'),
         'revision': doc.get('revision'),
         'rank': rank,
         'title': clean(product.get('title')) or clean(payload.get('fallbackText')) or '未命名商品',
@@ -125,9 +126,17 @@ def pick(doc, payload, product, schema, index):
 
 def collect(result, url_base):
     cards = []
+    baseline = result.get('start_revision')
+    has_baseline = type(baseline) is int and baseline >= 0
+    request_id = result.get('request_id')
+    has_request_id = isinstance(request_id, str) and bool(request_id)
     for doc in result.get('context_documents') or []:
         kind = str(doc.get('kind') or '')
         if not kind.startswith(CARD_KIND_PREFIX) or doc.get('deleted'):
+            continue
+        if has_baseline and (type(doc.get('revision')) is not int or doc['revision'] <= baseline):
+            continue
+        if has_request_id and doc.get('request_id') not in (None, request_id):
             continue
         block = (doc.get('value') or {}).get('block') or {}
         schema = clean(block.get('schema')) or kind[len(CARD_KIND_PREFIX):]
@@ -262,9 +271,15 @@ def attach_answer_analysis(cards, answer):
             analysis = extract_analysis(section)
             if analysis:
                 card['analysis'] = analysis
+                card['analysis_source'] = 'answer'
                 filled += 1
                 break
     return filled
+
+
+EMPTY_RESULT_RE = re.compile(
+    r'(?:未|没有|没)找到.*(?:商品|候选|匹配)|暂无.*(?:符合|可售|匹配).*(?:商品|候选)|0\s*(?:款|件|个)(?:商品|候选)'
+)
 
 
 def referenced(card, text):
@@ -276,10 +291,83 @@ def referenced(card, text):
         return True
     if card.get('sku_id') and card['sku_id'] in text:
         return True
+    if card.get('url') and card['url'] in text:
+        return True
     title = strip_space(card.get('title'))
     if title and len(title) >= 4 and title in flat:
         return True
     return False
+
+
+def select_for_answer(items, answer, all_cards=False):
+    """按本轮答复筛选商品：有明确引用时仅保留被点名项；简短导语未逐一点名且非空结果回复时保留本轮推荐卡，不外泄未选候选列表。"""
+    if all_cards or not answer or not answer.strip():
+        return list(items)
+    kept = [card for card in items if referenced(card, answer)]
+    if kept:
+        return kept
+    if EMPTY_RESULT_RE.search(answer):
+        return []
+    return [card for card in items if card.get('schema') in CARD_SCHEMAS]
+
+
+def markdown_image(card):
+    """仅嵌入与 HTML 下载相同可信来源的商品图，不为 Markdown 发起下载。"""
+    url = card.get('thumbnail') or ''
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if (parsed.scheme != 'https'
+                or parsed.hostname != 'filtering-tech-product-data.oss-cn-beijing.aliyuncs.com'
+                or parsed.username or parsed.password or parsed.port not in (None, 443)
+                or any(ch.isspace() or ch in '<>\\' for ch in url)):
+            return ''
+    except ValueError:
+        return ''
+    alt = re.sub(r'([\\\[\]])', r'\\\1', card.get('title') or '商品图片')
+    # 使用最简单的行内图片语法，避免部分宿主将尖括号目标识别为文件资源。
+    # 括号百分号编码保持图片地址语义，防止提前闭合 Markdown 目标。
+    image_url = url.replace('(', '%28').replace(')', '%29')
+    return '![%s](%s)' % (alt, image_url)
+
+
+def comparison_source(url):
+    """比价来源只接受 https 外部链接，其余一律忽略；不做下载或改写。"""
+    value = url.strip() if isinstance(url, str) else ''
+    if not value or len(value) > 2048 or any(ch.isspace() or ch in '<>\\"' for ch in value):
+        return ''
+    try:
+        parsed = urllib.parse.urlsplit(value)
+    except ValueError:
+        return ''
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+        return ''
+    return value
+
+
+
+def answer_covers_card(card, answer):
+    """确定性检查名称、价格、规格、图片及文字链接，防止去重删掉必需展示项。"""
+    if not answer or not card.get('url'):
+        return False
+    flat = strip_space(answer)
+    title = strip_space(card.get('title'))
+    if not title or title not in flat:
+        return False
+    if card['url'] not in answer:
+        return False
+    if card.get('price') and card['price'] not in answer:
+        return False
+    if card.get('spec') and card['spec'] != '默认' and strip_space(card['spec']) not in flat:
+        return False
+    image = markdown_image(card)
+    image_urls = {card.get('thumbnail') or '', (card.get('thumbnail') or '').replace('(', '%28').replace(')', '%29')}
+    if image and not re.search(r'!\[[^\n]*\]\(<?(?:' + '|'.join(re.escape(url) for url in image_urls) + r')>?\)', answer):
+        return False
+    if not image and '商品图片暂不可用' not in answer:
+        return False
+    if not re.search(r'(?<!!)\[[^\]\n]+\]\(<?' + re.escape(card['url']) + r'>?\)', answer):
+        return False
+    return True
 
 
 def theme_vars(theme):
@@ -466,10 +554,14 @@ def render_widget(cards, meta, theme, images=True):
             rate_chip = ('<span style="font-size:11px;line-height:1;padding:4px 6px;border-radius:4px;'
                          'background:var(--fcard-price-bg);color:var(--fcard-price)">省 %s%%</span>'
                          % html.escape(rate)) if rate else ''
+            source = comparison_source(advantage.get('source_url'))
+            source_html = ('<a href="%s" style="font-size:12px;color:var(--fcard-price);'
+                           'margin-left:6px;text-decoration:none">查看比价来源</a>'
+                           % html.escape(source, quote=True)) if source else ''
             advantage_html = (
-                '%s<span style="font-size:12px;color:var(--fcard-muted)">%s ¥%s，现价 ¥%s</span>'
+                '%s<span style="font-size:12px;color:var(--fcard-muted)">%s ¥%s，现价 ¥%s</span>%s'
                 % (rate_chip, html.escape(advantage['platform']),
-                   html.escape(advantage['comparison']), html.escape(price or '?')))
+                   html.escape(advantage['comparison']), html.escape(price or '?'), source_html))
         go_html = ('<span class="fcard-go" style="font-size:12px;color:var(--fcard-muted);'
                    'white-space:nowrap;margin-left:auto">查看商品 ›</span>') if card.get('url') else ''
         footer_html = ''
@@ -648,38 +740,151 @@ def render_text(cards, meta, color, width, indent='  '):
     return '\n'.join(out) + '\n'
 
 
-def render_markdown(cards, meta):
-    lines = []
-    if meta.get('title'):
-        lines.append('**%s**' % meta['title'])
-        lines.append('')
-    for card in cards:
+def render_single_header(card):
+    """单款详情固定顺序：标题与价格、商品图、比价、入口前置，长文正文跟在后面。"""
+    price = ('¥' + card['price']) if card.get('price') else '价格未提供'
+    bits = [price]
+    if card.get('spec') and card['spec'] != '默认':
+        bits.append('规格 ' + card['spec'])
+    if card.get('score'):
+        bits.append('评分 ' + card['score'])
+    if AVAILABILITY.get(card.get('availability') or ''):
+        bits.append(AVAILABILITY[card['availability']])
+    lines = ['## 商品信息与入口', '', '**%s** · %s' % (card.get('title') or '商品', ' · '.join(bits)), '']
+    lines.append(markdown_image(card) or '商品图片暂不可用')
+    lines.append('')
+    advantage = card.get('advantage') or {}
+    if advantage.get('platform') and advantage.get('comparison'):
+        lines.append('比价：%s ¥%s，当前 ¥%s，省 %s%%'
+                     % (advantage['platform'], advantage['comparison'],
+                        advantage.get('current') or card.get('price') or '?',
+                        advantage.get('saving_rate') or '?'))
+    entries = []
+    source = comparison_source(advantage.get('source_url'))
+    if source:
+        entries.append('[查看比价来源](%s)' % source.replace('(', '%28').replace(')', '%29'))
+    if card.get('url'):
+        entries.append('[查看商品](%s)' % card['url'])
+    if entries:
+        lines.append('入口：' + ' ｜ '.join(entries))
+    return '\n'.join(lines).rstrip() + '\n'
+
+
+def render_reused(cards, saved_at, title='上一轮商品信息'):
+    """复用同一会话已展示的商品事实；明确标注来源，不冒充本轮查询。"""
+    if not cards:
+        return ''
+    lines = ['### %s（快照 %s，价格库存可能变化）' % (title, saved_at), '']
+    for index, card in enumerate(cards, 1):
         price = ('¥' + card['price']) if card.get('price') else '价格未提供'
-        origin = ('（原价 ¥%s）' % card['origin_price']) if card.get('origin_price') else ''
-        bits = [price + origin]
+        bits = [price]
         if card.get('spec') and card['spec'] != '默认':
             bits.append('规格 ' + card['spec'])
         if card.get('score'):
             bits.append('评分 ' + card['score'])
-        if AVAILABILITY.get(card.get('availability') or ''):
-            bits.append(AVAILABILITY[card['availability']])
-        lines.append('%s. **%s** · %s' % (card.get('rank') or '-', card['title'], ' · '.join(bits)))
-        overview = card.get('analysis') or card.get('overview')
-        if overview:
-            lines.append('   %s' % overview)
-        if card.get('reason'):
-            lines.append('   > 推荐理由：%s' % card['reason'])
-        if card.get('brand_note'):
-            label = ('品牌 %s' % card['brand']) if card.get('brand') else '品牌背景'
-            lines.append('   %s：%s' % (label, card['brand_note']))
+        lines.append('%d. **%s** · %s' % (index, card.get('title') or '商品', ' · '.join(bits)))
+        lines.append('')
+        lines.append('   ' + (markdown_image(card) or '商品图片暂不可用'))
+        lines.append('')
         advantage = card.get('advantage') or {}
         if advantage.get('platform') and advantage.get('comparison'):
             lines.append('   比价：%s ¥%s，当前 ¥%s，省 %s%%'
                          % (advantage['platform'], advantage['comparison'],
                             advantage.get('current') or card.get('price') or '?',
                             advantage.get('saving_rate') or '?'))
+        entries = []
+        source = comparison_source(advantage.get('source_url'))
+        if source:
+            entries.append('[查看比价来源](%s)' % source.replace('(', '%28').replace(')', '%29'))
         if card.get('url'):
-            lines.append('   [查看商品](%s)' % card['url'])
+            entries.append('[查看商品](%s)' % card['url'])
+        if entries:
+            lines.append('   入口：' + ' ｜ '.join(entries))
+        lines.append('')
+    return '\n'.join(lines).rstrip() + '\n'
+
+
+def render_entries(cards, title='比价与入口'):
+    """远端正文已覆盖商品详情时，只补比价与入口，避免整块重复。"""
+    rows = []
+    for card in cards:
+        advantage = card.get('advantage') or {}
+        if advantage.get('platform') and advantage.get('comparison'):
+            rows.append((card, advantage))
+    if not rows:
+        return ''
+    lines = ['### ' + title, '']
+    for index, (card, advantage) in enumerate(rows, 1):
+        lines.append('%d. **%s** · 比价：%s ¥%s，当前 ¥%s，省 %s%%'
+                     % (index, card.get('title') or '商品', advantage['platform'],
+                        advantage['comparison'],
+                        advantage.get('current') or card.get('price') or '?',
+                        advantage.get('saving_rate') or '?'))
+        entries = []
+        source = comparison_source(advantage.get('source_url'))
+        if source:
+            entries.append('[查看比价来源](%s)' % source.replace('(', '%28').replace(')', '%29'))
+        if card.get('url'):
+            entries.append('[查看商品](%s)' % card['url'])
+        if entries:
+            lines.append('   入口：' + ' ｜ '.join(entries))
+        lines.append('')
+    return '\n'.join(lines).rstrip() + '\n'
+
+
+def render_markdown(cards, meta, omit_answer_extracts=False):
+    lines = []
+    if meta.get('title'):
+        lines.append('## %s' % meta['title'])
+        lines.append('')
+    for index, card in enumerate(cards, 1):
+        price = ('¥' + card['price']) if card.get('price') else '价格未提供'
+        origin = ('（原价 ¥%s）' % card['origin_price']) if card.get('origin_price') else ''
+        bits = [price + origin]
+        if card.get('spec') and card['spec'] != '默认':
+            bits.append('规格 ' + card['spec'])
+        elif card.get('spec') == '默认':
+            bits.append('默认规格')
+        else:
+            bits.append('规格未提供')
+        if card.get('dimensions'):
+            bits.append(' / '.join(card['dimensions']))
+        if card.get('score'):
+            bits.append('评分 ' + card['score'])
+        if AVAILABILITY.get(card.get('availability') or ''):
+            bits.append(AVAILABILITY[card['availability']])
+        title_text = card['title']
+        if card.get('subtitle'):
+            title_text += '（%s）' % card['subtitle']
+        lines.append('%s. **%s** · %s' % (card.get('rank') or index, title_text, ' · '.join(bits)))
+        lines.append('')
+        lines.append('   ' + (markdown_image(card) or '商品图片暂不可用'))
+        lines.append('')
+        overview = card.get('overview') if (omit_answer_extracts and card.get('analysis_source') == 'answer') else (card.get('analysis') or card.get('overview'))
+        if overview:
+            lines.append('   %s' % overview)
+        if card.get('reason') and not (omit_answer_extracts and card.get('reason_source') == 'answer'):
+            lines.append('   > 推荐理由：%s' % card['reason'])
+        if card.get('brand_note'):
+            label = ('品牌 %s' % card['brand']) if card.get('brand') else '品牌背景'
+            lines.append('   %s：%s' % (label, card['brand_note']))
+        advantage = card.get('advantage') or {}
+        source = ''
+        if advantage.get('platform') and advantage.get('comparison'):
+            lines.append('   比价：%s ¥%s，当前 ¥%s，省 %s%%'
+                         % (advantage['platform'], advantage['comparison'],
+                            advantage.get('current') or card.get('price') or '?',
+                            advantage.get('saving_rate') or '?'))
+            source = comparison_source(advantage.get('source_url'))
+        entries = []
+        if source:
+            entries.append('[查看比价来源](%s)' % source.replace('(', '%28').replace(')', '%29'))
+        if card.get('url'):
+            entries.append('[查看商品](%s)' % card['url'])
+        if entries:
+            lines.append('   入口：' + ' ｜ '.join(entries))
+        else:
+            lines.append('   商品链接：当前未提供详情入口')
         lines.append('')
     if meta.get('footer'):
         lines.append('_%s_' % meta['footer'])

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""filtalgo 常驻服务：skill 的唯一入口，每行一个 JSON 请求，每行一个 JSON 应答。
+"""filtalgo 服务入口：skill 的唯一入口，每行一个 JSON 请求，每行一个 JSON 应答。
 
-stdin:  {"op":"send","conversation":"...","text":"...","format":"widget"}
-        {"op":"resume","conversation":"...","format":"widget"}
+stdin:  {"op":"send","conversation":"...","text":"...","format":"md"}
+        {"op":"resume","conversation":"...","format":"md"}
         {"op":"cancel"|"clear"|"auth-reset"|"status","conversation":"..."}
         {"op":"ping"}
-stdout: {"id":<请求序号>,"ok":true,"status":"completed","card_count":3,"html_file":"...cards.html","answer_file":"...answer.md"}
+stdout: {"id":<请求序号>,"ok":true,"status":"completed","card_count":3,"display_file":"...display.md","answer_file":"...answer.md"}
         {"id":<请求序号>,"ok":false,"error":{"code":"...","message":"..."}}
 
-整轮对话只启动一次，复用同一个 Client、文件锁和本地状态；按行串行处理，应答顺序与请求一致。
-商品卡片和购物车按 format 输出片段、完整页面或 Markdown；正文另存 answer_file，应答只回路径。
+支持 --once 单次调用与常驻逐行处理；复用同一个 Client、文件锁和本地状态。
+默认输出 Markdown 正文 display_file，并兼容保留 answer_file、html_file 及各业务文件字段。
 不会新建身份，也不会在失败后重发。不向 stdout 写日志：诊断信息全部进 stderr。
 """
 import argparse
@@ -31,12 +31,14 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_DIR / 'scripts'))
 
 import cards  # noqa: E402
+import hosts  # noqa: E402
 import client  # noqa: E402
 import address_cards  # noqa: E402
 import logistics_cards  # noqa: E402
 import customer_service_cards  # noqa: E402
 import commerce_ui  # noqa: E402
 import commerce_render  # noqa: E402
+import link_response  # noqa: E402
 from update_check import UpdateChecker  # noqa: E402
 
 ClientError = client.ClientError
@@ -45,7 +47,7 @@ PROTOCOL = 1
 FORMATS = ('widget', 'html', 'md')
 OPS = ('send', 'resume', 'cancel', 'clear', 'auth-reset', 'revoke-authorization', 'logout', 'status', 'ping')
 # 请求里可对单个产物指定完整文件路径，覆盖默认目录命名。
-OUTPUT_PATH_KEYS = ('fragment_path', 'page_path', 'answer_path', 'cart_path', 'checkout_path', 'after_sale_path', 'address_path', 'logistics_path', 'customer_service_path')
+OUTPUT_PATH_KEYS = ('display_path', 'fragment_path', 'page_path', 'answer_path', 'cart_path', 'checkout_path', 'after_sale_path', 'address_path', 'logistics_path', 'customer_service_path')
 
 
 def state_directory(args):
@@ -141,38 +143,212 @@ def html_page(fragment, title):
     return commerce_ui.html_page(fragment, title)
 
 
+def build_display_markdown(answer, sections):
+    """按固定业务顺序拼接同轮已验证正文与各业务 Markdown 段，不二次请求或反向解析 HTML。"""
+    parts = []
+    if isinstance(answer, str) and answer.strip():
+        parts.append(answer.strip())
+    for section in sections:
+        if isinstance(section, str) and section.strip():
+            parts.append(section.strip())
+    return ('\n\n'.join(parts) + '\n') if parts else ''
+
+
+
+CARD_CACHE_FIELDS = ('title', 'price', 'spec', 'score', 'availability', 'thumbnail',
+                     'url', 'goods_id', 'sku_id', 'advantage')
+ORDINAL = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6,
+           '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6}
+
+
+def _cache_file(client, conversation):
+    directory = getattr(getattr(client, 'store', None), 'directory', None)
+    if not isinstance(directory, (str, os.PathLike)) or not isinstance(conversation, str) or not conversation:
+        return None
+    digest = hashlib.sha256(conversation.encode('utf-8')).hexdigest()[:32]
+    folder = Path(directory) / 'product-cache'
+    try:
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return folder / (digest + '.json')
+
+
+def save_card_cache(client, conversation, items):
+    path = _cache_file(client, conversation)
+    if path is None or not items:
+        return
+    payload = {'saved_at': time.strftime('%Y-%m-%d %H:%M'),
+               'cards': [{key: item.get(key) for key in CARD_CACHE_FIELDS} for item in items[:5]]}
+    tmp = path.with_suffix('.tmp')
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf8')
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
+def load_card_cache(client, conversation):
+    path = _cache_file(client, conversation)
+    if path is None or not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding='utf8'))
+    except (OSError, ValueError):
+        return None
+
+
+def select_reused(cached, text):
+    cards_list = (cached or {}).get('cards') or []
+    if not cards_list:
+        return []
+    flat = re.sub(r'\s+', '', text or '')
+    picks, seen = [], set()
+    for match in re.finditer(r'第\s*([一二三四五六1-6])\s*(?:个|款|件|条)?', flat):
+        index = ORDINAL.get(match.group(1))
+        if index and 1 <= index <= len(cards_list):
+            card = cards_list[index - 1]
+            key = (card.get('goods_id'), card.get('sku_id'), card.get('title'))
+            if key not in seen:
+                seen.add(key)
+                picks.append(card)
+    if picks:
+        return picks
+    for card in cards_list:
+        title = re.sub(r'\s+', '', card.get('title') or '')
+        if title and len(title) >= 4 and title in flat:
+            return [card]
+    return []
+
+
+def skill_version():
+    """读取 SKILL.md 的 metadata.version；失败返回 None。"""
+    try:
+        text = (Path(__file__).resolve().parents[1] / 'SKILL.md').read_text(encoding='utf8')
+    except OSError:
+        return None
+    match = re.search(r'^\s+version:\s*"([^"]+)"', text, re.M)
+    return match.group(1) if match else None
+
+
+def record_call(client, payload, host, host_source, fmt):
+    """每次调用追加一行 JSONL，便于统计宿主维度的失败率；不记录用户文本。"""
+    directory = getattr(getattr(client, 'store', None), 'directory', None)
+    if not isinstance(directory, (str, os.PathLike)) or os.environ.get('FILTALGO_NO_LOG') == '1':
+        return
+    card_count = payload.get('card_count') or 0
+    record = {
+        'ts': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        'host': host,
+        'host_source': host_source,
+        'format': fmt,
+        'card_count': card_count,
+        'card_source': payload.get('card_source') or ('new' if card_count else 'none'),
+        'status': payload.get('status'),
+        'error_code': (payload.get('error') or {}).get('code') if isinstance(payload.get('error'), dict) else None,
+        'version': skill_version(),
+    }
+    try:
+        path = Path(directory) / 'calls.jsonl'
+        with open(path, 'a', encoding='utf8') as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + '\n')
+    except OSError:
+        pass
+
+
+def resolve_host(request, client, conversation):
+    """宿主解析：会话锁定 → 请求字段 → 环境变量 → default。"""
+    raw = request.get('host')
+    locked = None
+    getter = getattr(client, 'locked_host', None)
+    if callable(getter):
+        try:
+            locked = hosts.normalize(getter(conversation))
+        except Exception:
+            locked = None
+    if locked:
+        return locked, 'state', raw
+    host = hosts.normalize(raw)
+    source = 'request'
+    if not host:
+        host = hosts.normalize(os.environ.get('FILTALGO_HOST'))
+        source = 'env'
+    if not host:
+        host, source = 'default', 'default'
+    if host != 'default':
+        remember = getattr(client, 'remember_host', None)
+        if callable(remember):
+            try:
+                remember(conversation, host)
+            except Exception:
+                pass
+    return host, source, raw
+
+
 def render(result, fmt, max_cards, all_cards=False):
     budget = cards.ImageBudget()
     out = {'answer': answer_text(result), '_format': fmt, '_image_budget': budget}
+    customer_service_md = ''
+    logistics_md = ''
+    address_md = ''
+    cart_md = ''
+    md_sections_by_field = {}
+    products_md = ''
     if 'customer_service_snapshots' in result:
-        out['customer_service_status'], out['customer_service_count'], out['customer_service_content'] = customer_service_cards.render(result['customer_service_snapshots'], fmt)
+        out['customer_service_status'], out['customer_service_count'], customer_service_md = customer_service_cards.render(result['customer_service_snapshots'], 'md')
+        out['customer_service_content'] = (
+            customer_service_md if fmt == 'md'
+            else customer_service_cards.render(result['customer_service_snapshots'], fmt)[2]
+        )
     if 'logistics_snapshots' in result:
-        out['logistics_status'], out['logistics_count'], out['logistics_content'] = logistics_cards.render(result['logistics_snapshots'], fmt)
+        out['logistics_status'], out['logistics_count'], logistics_md = logistics_cards.render(result['logistics_snapshots'], 'md')
+        out['logistics_content'] = (
+            logistics_md if fmt == 'md'
+            else logistics_cards.render(result['logistics_snapshots'], fmt)[2]
+        )
     if 'address_snapshots' in result:
-        out['address_status'], out['address_content'] = address_cards.render(result['address_snapshots'], fmt)
+        out['address_status'], address_md = address_cards.render(result['address_snapshots'], 'md')
+        out['address_content'] = (
+            address_md if fmt == 'md'
+            else address_cards.render(result['address_snapshots'], fmt)[1]
+        )
     if 'cart' in result:
         try:
-            out['cart_status'], out['cart_content'] = render_cart(result['cart'], fmt, budget)
+            out['cart_status'], cart_md = render_cart(result['cart'], 'md', budget)
+            if fmt == 'md':
+                out['cart_content'] = cart_md
+            else:
+                out['cart_status'], out['cart_content'] = render_cart(result['cart'], fmt, budget)
         except Exception:
             out['presentation_status'] = 'failed'
-            out['presentation_errors'] = ['cart_render_failed']
+            out.setdefault('presentation_errors', []).append('cart_render_failed')
     for field, kinds in (('checkout', [('checkouts', 'checkout')]),
                          ('after_sale', [('after_sales', 'after_sale'), ('after_sale_lists', 'after_sale_list')])):
         documents = [(result.get(key) or [], kind) for key, kind in kinds]
         if not any(docs for docs, _ in documents):
             continue
         try:
-            content, links = [], []
             ordered = [(document, kind) for docs, kind in documents for document in docs]
             ordered.sort(key=lambda pair: (pair[0].get('display_order', 0), pair[0].get('revision', 0)))
+            md_parts, links = [], []
             for document, kind in ordered:
-                rendered, navigation = commerce_render.render([document], kind, 'widget' if fmt == 'html' else fmt, budget)
-                content.append(rendered); links.extend(navigation)
-            combined = '\n'.join(content)
-            out[field + '_content'] = html_page(combined, '结算' if field == 'checkout' else '售后') if fmt == 'html' else combined
+                md_rendered, navigation = commerce_render.render([document], kind, 'md', budget)
+                md_parts.append(md_rendered)
+                links.extend(navigation)
+            md_combined = '\n'.join(md_parts)
+            md_sections_by_field[field] = md_combined
             out[field + '_count'] = sum(len(docs) for docs, _ in documents)
             if field == 'checkout':
                 out['payment_links'] = list(dict.fromkeys(url for _, url, rel in links if rel == 'payment'))
+            if fmt == 'md':
+                out[field + '_content'] = md_combined
+            else:
+                html_parts = []
+                for document, kind in ordered:
+                    rendered, _ = commerce_render.render([document], kind, 'widget', budget)
+                    html_parts.append(rendered)
+                combined = '\n'.join(html_parts)
+                out[field + '_content'] = html_page(combined, '结算' if field == 'checkout' else '售后') if fmt == 'html' else combined
         except Exception:
             out['presentation_status'] = 'failed'
             out.setdefault('presentation_errors', []).append(field + '_render_failed')
@@ -180,24 +356,43 @@ def render(result, fmt, max_cards, all_cards=False):
         items = cards.collect(result, cards.DEFAULT_URL_BASE)
         cards.attach_answer_reasons(items, out['answer'])
         cards.attach_answer_analysis(items, out['answer'])
-        if not all_cards and out['answer']:
-            kept = [c for c in items if cards.referenced(c, out['answer'])]
-            items = kept
+        items = cards.select_for_answer(items, out['answer'], all_cards)
         if max_cards and max_cards > 0:
             items = items[:max_cards]
         out['card_count'] = len(items)
-        if not items:
-            return out
-        meta = {'title': '', 'footer': ''}
-        if fmt in ('widget', 'html'):
-            out['widget_cards'] = items
-            out['product_links'] = [{'title': item['title'], 'url': item['url']} for item in items if item.get('url')]
-        elif fmt == 'md':
-            out['cards_markdown'] = cards.render_markdown(items, meta)
+        if items:
+            has_answer = bool(out['answer'].strip())
+            if not (has_answer and all(cards.answer_covers_card(item, out['answer']) for item in items)):
+                products_md = cards.render_markdown(
+                    items,
+                    {'title': '商品信息与入口' if has_answer else '', 'footer': ''},
+                    omit_answer_extracts=has_answer,
+                )
+            product_links = [{'title': item['title'], 'url': item['url']} for item in items if item.get('url')]
+            if fmt in ('widget', 'html'):
+                out['widget_cards'] = items
+                out['product_links'] = product_links
+            elif fmt == 'md':
+                out['cards_markdown'] = cards.render_markdown(items, {'title': '', 'footer': ''})
+                if product_links:
+                    out['product_links'] = product_links
     except Exception:
         out['card_count'] = 0
         out['presentation_status'] = 'failed'
         out.setdefault('presentation_errors', []).append('product_render_failed')
+    display_content = build_display_markdown(out['answer'], [
+        products_md,
+        cart_md,
+        address_md,
+        md_sections_by_field.get('checkout', ''),
+        logistics_md,
+        md_sections_by_field.get('after_sale', ''),
+        customer_service_md,
+    ])
+    if not display_content and result.get('region_selector'):
+        display_content = '请提供或确认收货地区（省、市、区）及详细地址后再继续。\n'
+    if display_content:
+        out['display_content'] = display_content
     return out
 
 
@@ -241,8 +436,9 @@ def write_outputs(payload, request, default_out_dir):
         if key in custom:
             return Path(custom[key]).expanduser().resolve()
         return directory / ('turn-%s.%s' % (stamp, suffix))
+    display_content = payload.pop('display_content', '')
     answer = payload.pop('answer', '')
-    fmt = payload.pop('_format', 'widget')
+    fmt = payload.pop('_format', 'md')
     budget = payload.pop('_image_budget', None)
     def save(target, content):
         try:
@@ -284,6 +480,10 @@ def write_outputs(payload, request, default_out_dir):
         target = directory / ('turn-%s.cards.md' % stamp)
         if save(target, payload.pop('cards_markdown')):
             payload['html_file'] = str(target)
+    if display_content.strip():
+        target = target_path('display_path', 'display.md')
+        if save(target, display_content):
+            payload['display_file'] = str(target)
     if answer.strip():
         target = target_path('answer_path', 'answer.md')
         if save(target, answer):
@@ -328,7 +528,17 @@ def _handle(client, request, default_format, default_out_dir, update_checker, co
         raise ClientError('INVALID_OP', '未知 op：%s（可用：%s）' % (op, '/'.join(OPS)))
     if not isinstance(conversation, str) or not conversation.strip():
         raise ClientError('INVALID_CONVERSATION', '每个请求都必须带非空 conversation。')
-    fmt = request.get('format') or default_format
+    host, host_source, _raw_host = resolve_host(request, client, conversation)
+    if client is not None:
+        client.host = host
+    if host == 'default':
+        # 未识别宿主：保留 2.3.x 行为，由请求或 CLI 决定格式。
+        fmt = request.get('format') or default_format
+    else:
+        # 已识别宿主：格式由路由表固定，请求里的 format 默认忽略。
+        fmt = hosts.profile(host)['format']
+        if os.environ.get('FILTALGO_FORMAT_OVERRIDE') == '1' and request.get('format'):
+            fmt = request['format']
     if fmt not in FORMATS:
         raise ClientError('INVALID_FORMAT', 'format 只能是 ' + '/'.join(FORMATS))
     if op in ('send', 'resume'):
@@ -386,7 +596,8 @@ def _handle(client, request, default_format, default_out_dir, update_checker, co
         if value.get('pending') and value.get('last_error'):
             out['last_error'] = value['last_error']['code']
         return out
-    payload = {'ok': result.get('ok', True), 'status': result.get('status'), 'conversation': conversation}
+    payload = {'ok': result.get('ok', True), 'status': result.get('status'), 'conversation': conversation,
+               'host': host, 'host_source': host_source}
     for key in ('authorization_url', 'message', 'error', 'presentation_status'):
         if result.get(key):
             payload[key] = result[key]
@@ -398,7 +609,46 @@ def _handle(client, request, default_format, default_out_dir, update_checker, co
         payment_links = payload.get('payment_links', []) if result.get('checkouts') else extract_payment_links(payload.get('answer'))
         if payment_links:
             payload['payment_links'] = payment_links
+        link_response.finalize_payload(payload)
+        try:
+            current_items = cards.collect(result, cards.DEFAULT_URL_BASE)
+        except Exception:
+            current_items = []
+        try:
+            if current_items:
+                save_card_cache(client, conversation, current_items)
+            elif payload.get('display_content'):
+                # 第二级：会话库里已有的商品块（真实文档，优先于本地快照）
+                carried = []
+                carry = result.get('carry') if isinstance(result.get('carry'), dict) else None
+                if carry:
+                    try:
+                        carried = client.carried_product_documents(**carry)
+                    except Exception:
+                        carried = []
+                reused = ''
+                if carried:
+                    try:
+                        carried_items = cards.collect({'context_documents': carried}, cards.DEFAULT_URL_BASE)
+                    except Exception:
+                        carried_items = []
+                    if carried_items:
+                        reused = cards.render_reused(carried_items, '本会话前几轮', title='会话内已有商品信息')
+                        payload['card_source'] = 'session-library'
+                        save_card_cache(client, conversation, carried_items)
+                # 第三级：本地快照缓存
+                if not reused:
+                    cached = load_card_cache(client, conversation)
+                    reused = cards.render_reused(select_reused(cached, request.get('text') or ''),
+                                                 (cached or {}).get('saved_at') or '')
+                    if reused:
+                        payload['card_source'] = 'previous-turn'
+                if reused:
+                    payload['display_content'] = reused + '\n' + payload['display_content']
+        except Exception:
+            pass
         write_outputs(payload, request, default_out_dir)
+        record_call(client, payload, host, host_source, fmt)
     return payload
 
 
@@ -418,7 +668,7 @@ def main():
     parser.add_argument('--control-url', default=None)
     parser.add_argument('--agent-id', default=None)
     parser.add_argument('--state-dir', default=None)
-    parser.add_argument('--format', choices=FORMATS, default='widget', help='请求未指定 format 时使用的默认值')
+    parser.add_argument('--format', choices=FORMATS, default='md', help='请求未指定 format 时使用的默认值')
     parser.add_argument('--heartbeat', default=None, help='心跳文件路径；默认写到状态目录的 service-heartbeat.json')
     parser.add_argument('--out-dir', default=None, help='每轮卡片与正文的输出目录；请求里可用 out_dir 覆盖')
     parser.add_argument('--once', action='store_true', help='读取一条 JSON 请求并输出一条应答后退出；省略 op 时默认为 send')
