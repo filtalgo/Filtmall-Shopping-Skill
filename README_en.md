@@ -1,129 +1,140 @@
-# Filtmall Shopping Skill
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
+    <img alt="Filtmall Logo" src="assets/logo-light.png" width="200">
+  </picture>
+</p>
 
-[简体中文](README.md) · [Filtalgo Website](https://www.filtalgo.com/) · [Skill Instructions](SKILL.md) · [Public API Protocol](references/protocol.md)
+<h1 align="center">Filtmall Shopping Skill</h1>
 
-**Shop through natural-language conversations, from product discovery to purchase.**
+<p align="center">Tell your AI assistant your budget and requirements — research products clearly and buy high-value goods directly through Filtmall.</p>
 
-Filtmall Shopping is Filtalgo's hosted shopping Agent Skill. Users can describe their needs, search for products, compare prices and specifications, and continue shopping after authorization and confirmation. Product information, prices, and stock availability are determined by actual service responses.
+<p align="center">
+  <a href="README.md">简体中文</a> ｜ <a href="README_en.md">English</a>
+</p>
 
-This package uses the **production environment** by default. Member operations require separate authorization, and order submission and payment require user confirmation.
+<p align="center">
+  <a href="https://github.com/filtalgo/Filtmall-Shopping-Skill/releases"><img alt="Release" src="https://img.shields.io/badge/Release-v2.4.3-blue?logo=github"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache--2.0-2EA44F?logo=apache"></a>
+  <a href="SKILL.md"><img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white"></a>
+  <a href="https://github.com/filtalgo/Filtmall-Shopping-Skill"><img alt="Stars" src="https://img.shields.io/github/stars/filtalgo/Filtmall-Shopping-Skill?logo=github"></a>
+  <a href="https://skills.sh/filtalgo/Filtmall-Shopping-Skill"><img alt="skills.sh" src="https://skills.sh/b/filtalgo/Filtmall-Shopping-Skill"></a>
+</p>
 
-The current version is **2.4.3**, published as [GitHub Release v2.4.3](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.4.3). The `metadata.version` in `SKILL.md` is `2.4.3`, and the matching release/tag is `v2.4.3`.
+- **What is Filtmall**: **Filtmall (筛电)** is a platform-level **Business Agent** built for **Personal Agents**, as well as an agent-native e-commerce platform focused on extreme value-for-money. Once installed, your Personal Agent connects via this Skill (`filtmall-shopping`) directly to Filtmall's backend shopping Agent to discover products, verify specs and ingredients, compare prices, place orders, and track after-sales in chat — without switching apps or digging through coupon math. Product details, prices, and inventory are determined by live service responses.
+- **What is `filtmall-shopping`**: Filtmall's official open-source shopping Agent Skill, giving Skill-enabled AI assistants direct capabilities to search products, check specs and ingredients, compare prices, place orders, and handle after-sales on Filtmall.
+
+## Why Filtmall
+
+Filtmall is built around two core pillars: **Open to Personal Agents by Design** and **Extreme Value-for-Money**.
+
+- **Native open access for Personal Agents**: Built specifically to serve Personal Agents with structured product facts, price references, and fulfillment APIs, without the anti-bot blocks common on traditional marketplaces.
+- **Factory-direct OBM supply, zero platform ad fees**: Connects directly with vetted OBMs (Original Brand Manufacturers) and charges zero advertising or paid-traffic fees — most items are priced at roughly **1/3 to 2/3** of comparable specifications on traditional platforms, delivering extreme value for money.
+- **No paid rankings — matched purely to your requirements**: Ranked strictly by requirement fit and value rather than ad spend; state your budget, specs, and use case in plain language to get specs, prices, ingredients/materials, and fit reasons in seconds.
+- **Curated quality, zero-friction browsing**: Products are vetted for both same-spec price advantage and manufacturer qualification, reputation, or sample feedback (spanning beauty & personal care, food, bags, and expanding with demand). Browse and compare with no login or API key; every transaction confirms first and pays on the official checkout page.
+
+| Dimension | Traditional E-Commerce | Filtmall |
+| --- | --- | --- |
+| Agent Access | Built for manual browsing; often blocks external AI agents | Open natively to Personal Agents via structured APIs |
+| Ranking | Influenced by paid ads and traffic bidding | Zero paid rankings — sorted by fit and value |
+| Pricing Basis | Multi-layer distributors + platform ad spend | Direct OBM factories + zero platform ad fees |
+| Decision Speed | Manual scrolling across pages, reviews, and coupons | AI summarizes specs, ingredients, and price references in seconds |
 
 ## Installation
 
-Copy this entire directory into your host's Skill directory under the name `filtmall-shopping`. Python 3.10 or later is required. No additional dependencies, channel AK/SK credentials, or SSH configuration are needed. The client requests a guest identity and stores it privately.
+Choose the easiest method for your AI assistant (requires Python 3.10+ locally):
 
-To connect to another available environment, specify both `--control-url` and `--agent-id`.
+| AI Assistant / Environment | Recommended Installation |
+| --- | --- |
+| **WorkBuddy** | One-click install via [WorkBuddy Skill Store · Filtmall Shopping](https://www.workbuddy.cn/share/asset?extra_from=&resource_type=link&shareCode=cs261124Dt1WMAXrsiMLBGjMOhQz3c&share_way=link&sig=bDrtltW2Ysncjump) |
+| **SkillHub** | Install via [SkillHub · filtmall-agentic-shopping](https://skillhub.cn/skills/org-r0hb81co/filtmall-agentic-shopping) |
+| **skills.sh** | View on [skills.sh · filtmall-shopping](https://www.skills.sh/filtalgo/filtmall-shopping-skill/filtmall-shopping) |
+| **Zero-CLI (General AI Agents)** | Send this repo URL to your AI and ask: "Please install this shopping skill: `https://github.com/filtalgo/Filtmall-Shopping-Skill`" |
+| **CLI (Claude Code / Codex / Cursor, etc.)** | Use the `npx` command below (requires Node.js 22.20+) |
+| **Offline / No Node.js** | Download a package from [GitHub Releases](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases) and copy it into your host's skill folder as `filtmall-shopping` (preserving `data/`, `third_party/`, and `LICENSE`) |
 
-## Try It
+Global CLI installation (recommended):
 
-- “Recommend moisturizing face masks that cost no more than CNY 100.”
-- “Compare the specifications and prices of the first and third products.”
-- “Show me the items in my shopping cart.”
-- “Check the shipping status of this order.”
+```bash
+npx skills add filtalgo/Filtmall-Shopping-Skill --skill filtmall-shopping -g
+```
 
-Member operations require user authorization, and write operations require user confirmation.
+Omit `-g` for project-local installation; pass `-a claude-code` to target a specific host.
+
+## Quick Start
+
+Once installed, try asking in chat:
+
+- Recommend moisturizing face masks under ¥100, ideally under ¥5 per sheet
+- Find a lightweight commuter backpack under ¥250 that fits a 14-inch laptop
+- Compare the specs, ingredients, and prices of the first and third options
+- Show my shopping cart / Check the shipping status of this order
+
+Connects to the production environment by default. Browsing, search, comparison, and ingredient lookups require no login; member operations require separate authorization and explicit confirmation before writes.
 
 ## Capabilities
 
-| Stage | What users can do |
+| Capability | Description |
 | --- | --- |
-| Discover | Describe categories, budgets, and needs in natural language to find products |
-| Compare | View prices, specifications, stock availability, product information, and available price comparison evidence returned by the service |
-| Explore details | View product information and specifications, and look up ingredient information |
-| Purchase | Manage the shopping cart after authorization, and preview and confirm orders |
-| Follow up | Check orders and shipping, and handle applicable cancellation and after-sales requests |
+| Discovery & Comparison | Filter by category, budget, specs, and preferences; view prices, stock, fit reasons, and price references |
+| Details & Ingredients | Inspect product specs, materials, and cosmetic ingredient details |
+| Shopping Cart | Add, update quantity, remove items, and review totals after authorization |
+| Shipping Addresses | List, add, or edit addresses with offline province/city/district resolution |
+| Checkout & Payment | Preview and confirm orders to obtain the official checkout link; payment completes on the store page |
+| Orders & Shipping | Track order status and delivery updates |
+| After-Sales & Support | Submit/track after-sales requests and access customer support links |
 
-Available capabilities depend on the target Agent's configuration, business services, and user authorization. The Skill does not fabricate data that the service has not returned.
+Available capabilities depend on the target Agent configuration, business services, and user authorization. The Skill never fabricates unreturned data.
 
-## How It Works
+## Boundaries & Safety
 
-```mermaid
-flowchart LR
-    U["User request"] --> A["Host Agent"]
-    A --> S["Filtmall Shopping Skill"]
-    S --> C["Control Session API"]
-    C --> R["Hosted Shopping Agent"]
-    R --> C
-    C --> S
-    S --> A
-```
+- **No autonomous payment**: Payment is always completed by the user on the official checkout page.
+- **Confirm before writes**: Cart, address, order, and after-sales changes always summarize key details and ask for confirmation first.
+- **Local isolation**: Credentials and pending states are kept in a private local state directory and never written to chat or logs.
+- **Idempotent recovery**: On uncertain network outcomes, the Skill checks status first rather than blindly re-sending write requests.
 
-The Skill submits requests through Control's public guest and session APIs, preserving session and request state so conversations can continue and interrupted requests can be recovered. The hosted Agent orchestrates business tools on the server. A guest identity does not constitute member authorization. The public API does not implement the standard A2A Agent Card discovery protocol.
+## About Filtmall
 
-## Developer Quick Start
+Filtmall is built by **Filtmall (Beijing) Intelligent Technology Co., Ltd.**, dedicated to building an extreme value-for-money agent-native e-commerce platform for Personal Agents.
 
-The recommended approach is single-call mode, with one line of JSON passed through standard input:
+- Website: [www.filtalgo.com](https://www.filtalgo.com/)
+- Web Store (H5): [m.filtalgo.com](https://m.filtalgo.com/)
+- WeChat Mini-Program: Search "筛电商城" in WeChat
+
+<details>
+<summary>Developer & Integration Guide (Configuration, Architecture, Tests & Protocol Docs)</summary>
+
+### Configuration
+
+- **Environment**: Production by default. Pass both `--control-url` and `--agent-id` to switch to another open environment.
+- **Host identifier**: Supports `host` values `today` / `workbuddy` / `doubao` / `qianwen` / `lingguang` / `default`.
+
+### Offline Tests
 
 ```bash
-python3 "<skill-dir>/scripts/service.py" --once
+python3 -m unittest discover -s tests
 ```
 
-```json
-{"conversation":"<host-generated conversation ID>","text":"Recommend face masks that cost no more than CNY 100. Search only.","host":"workbuddy"}
-```
+### Protocol & Reference Docs
 
-The host should generate a separate identifier for each user and conversation, and reuse it when continuing the conversation. The optional `host` field accepts `today`, `workbuddy`, `doubao`, `qianwen`, or `lingguang` and selects the display format; omit it to use the default. Choose `format` as `widget` (inline HTML), `html` (standalone page), or `md` (Markdown, the default); the same format applies to product cards and cart snapshots, and a recognized host determines it. Results contain `display_file` for the turn's Markdown response, `answer_file` for response text, `fragment_file`, `page_file`, or `html_file` for product cards, and `cart_file` for the current turn's cart. HTML modes also return `cart_fragment_file` or `cart_page_file`. `cart_status` is `current` or `unavailable`; when unavailable, check the cart before repeating a write operation. The host must be able to access these files and read them as UTF-8. Fields are omitted when the corresponding content is unavailable.
+- [SKILL.md](SKILL.md): Host invocation and interaction rules
+- [references/protocol.md](references/protocol.md): Public API protocol
+- [references/presentation.md](references/presentation.md): Display and host adaptation
+- [references/authorization.md](references/authorization.md): Authorization, confirmation, and payment boundaries
 
-### Choose a display format
+</details>
 
-| Use case | Request parameter | Product artifact | Cart artifact |
-| --- | --- | --- | --- |
-| Embed in a chat or host interface | `"format":"widget"` | `fragment_file`, an HTML fragment | `cart_fragment_file`, an HTML fragment |
-| Open a standalone page in a browser or WebView | `"format":"html"` | `page_file`, a complete HTML page | `cart_page_file`, a complete HTML page |
-| Display Markdown or text (default) | `"format":"md"` | `html_file`, a `.cards.md` file | `cart_file`, a `.cart.md` file |
+## License
 
-The format applies to products, carts, checkouts, and after-sales results; response text remains in `answer_file`. Checkout results use `checkout_file`, and after-sales results use `after_sale_file`. In `widget` mode, the corresponding aliases are `checkout_fragment_file` and `after_sale_fragment_file`; in `html` mode, they are `checkout_page_file` and `after_sale_page_file`. In `md` mode, read the respective Markdown files directly. Business documents can produce files without response text, and multiple objects share the corresponding business file. Only documents from the current turn are used. Standalone pages use the same cards as inline fragments, without an extra page heading or status sidebar.
+[Apache-2.0](LICENSE)
 
-Set `checkout_path` and `after_sale_path` directly or through `out_dirs` to choose output paths. Different artifacts must use different paths. Default filenames are unique per turn, and custom paths are replaced atomically. If `presentation_status=failed`, retain successful files and recover rendering through `resume` in the same conversation; do not repeat the business write. Payment preparation does not prove payment, and a refund amount does not prove receipt. Completed or cancelled checkouts do not show payment prompts or payment links; available detail links and explicit payment facts remain visible.
+---
 
-Cart cards show selected and total product/quantity counts, formatted unit prices, and missing-price notices. HTML folds rows after the first three while retaining all rows; Markdown includes every row. Images share a bounded turn budget and reuse duplicate URLs. Product links still lead to actual store pages. Inline images require host support for `data:` images.
-
-The `--format` startup option sets the default, while a request's `format` overrides it. For example:
-
-```json
-{"op":"send","conversation":"<conversation-id>","text":"Show my cart","format":"md"}
-```
-
-For inline product cards in **Qoder**, use `widget` and set `out_dirs.fragment_path` directly to an HTML file under Qoder's `visualizations/` directory. Replace the placeholder with that directory's actual absolute path, and display the returned `fragment_file` inline. For an asynchronous request, pass the same path to the `resume` request that retrieves the final result.
-
-```json
-{"op":"send","conversation":"<conversation-id>","text":"Recommend a face mask under 100 yuan, search only.","format":"widget",
- "out_dirs":{"fragment_path":"<absolute-path-to-Qoder-visualizations>/products.html"}}
-```
-
-An explicitly specified path can overwrite an existing file; choose different filenames when retaining results from multiple turns.
-
-If the network is interrupted or the result is unknown, use `resume` within the same conversation to check the original request; do not automatically resubmit it. Use `cancel` to stop a request and `clear` to clear a conversation. See [SKILL.md](SKILL.md) for the complete request, authorization, address, and presentation rules.
-
-## Updates
-
-The service checks the latest stable GitHub Release before each valid send. It reports available updates without automatically installing them. Update through the original installation channel after resolving any pending request; keep the bundled third_party directory when copying the Skill.
-
-## User Control and Data Boundaries
-
-- Obtain explicit user consent before modifying the shopping cart, addresses, or orders, or initiating after-sales requests.
-- Users complete authorization and payment on the corresponding pages. Do not treat a guest identity as member authorization or fabricate payment links or success statuses.
-- Credentials and unresolved requests are stored in the host's private state directory and must not be included in model messages or logs.
-- Bundled production and pre-production region snapshots are selected by environment; never mix IDs between environments.
-- A completed status does not mean payment succeeded. Order and payment outcomes are determined by the actual results from business services.
-
-## Directory Structure
-
-```text
-SKILL.md                 # Host invocation and interaction rules
-references/protocol.md   # Control public session protocol
-scripts/service.py       # Entry point for single-call and persistent service modes
-scripts/hosts.py         # Host enum and display policy
-scripts/link_response.py # Dual H5 / mini-program links in Markdown
-scripts/client.py        # Identity, sessions, and request recovery
-scripts/cards.py         # Product card rendering
-scripts/commerce_render.py # Cart, checkout, and after-sales rendering
-scripts/region_lookup.py # Environment-specific region lookup
-data/regions-pre.json    # Pre-production region snapshot
-data/regions-prod.json   # Production region snapshot
-agents/openai.yaml       # Host display metadata
-```
-
-This Skill is licensed under [Apache-2.0](LICENSE). The separate CLI Skill that calls the underlying shopping tools directly is `filtmall-shopping-cli`; its identity and sessions are independent of this Skill.
+<p align="center">
+  <a href="https://www.filtalgo.com/">Website</a> ·
+  <a href="https://m.filtalgo.com/">Store</a> ·
+  <a href="https://github.com/filtalgo/Filtmall-Shopping-Skill">GitHub</a> ·
+  <a href="https://www.skills.sh/filtalgo/filtmall-shopping-skill/filtmall-shopping">skills.sh</a> ·
+  <a href="https://skillhub.cn/skills/org-r0hb81co/filtmall-agentic-shopping">SkillHub</a>
+</p>

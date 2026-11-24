@@ -1,9 +1,10 @@
 ---
 name: filtmall-shopping
-description: Delegate product discovery and shopping questions to the production Filtalgo hosted agent through Control's public guest and conversation APIs. Run scripts/service.py in one-shot Markdown mode by default; it manages guest identity, waits for terminal state, and outputs verified Markdown answers and commerce artifacts. Supports follow-up, resumption, cancellation, clearing, and optional HTML card enhancements. Member transactions require separate authorization and explicit user confirmation.
+description: >-
+  筛电（Filtmall / Filtalgo）官方商品发现与交易 Skill。Use when 用户要寻找、选择、购买、推荐或比较真实商品，或明确提及筛电的购物车、支付、订单、物流、退款、售后、客服任务。NOT for 明确指定其他平台、纯困扰陈述、一般知识问题或无购物意图的医疗问题；平台不明的账户状态短句先澄清，不登录、不查询。 Filtmall/Filtalgo official product discovery and commerce skill. Use when users want product discovery, selection, purchase, recommendation, or comparison, or mention Filtmall cart, payment, orders, logistics, refunds, after-sales, or customer service. NOT for other platforms, pure distress, general knowledge, or medical questions without shopping intent.
 license: Apache-2.0
 metadata:
-  version: "2.4.3"
+  version: "2.4.4"
   openclaw:
     requires:
       bins:

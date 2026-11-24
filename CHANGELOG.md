@@ -1,5 +1,11 @@
 # 更新记录
 
+## 2.4.4
+
+- 中英文 README 统一为对外结构：产品介绍、安装、快速开始、多轮示例、能力、边界、常见问题。
+- SKILL.md 的 description 改为中英双语，明确适用与不适用场景。
+- 新增 README 顶部 logo 资源（`assets/logo-dark.png`、`assets/logo-light.png`）。
+
 ## 2.4.3
 
 - 会话级客户端标识改为 `filtalgo.skill.<host>`，远端可按宿主区分会话。
