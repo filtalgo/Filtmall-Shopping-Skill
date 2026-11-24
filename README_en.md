@@ -8,7 +8,7 @@ Filtmall Shopping is Filtalgo's hosted shopping Agent Skill. Users can describe 
 
 This package uses the **production environment** by default. Member operations require separate authorization, and order submission and payment require user confirmation.
 
-The current version is **2.2.0**, published as [GitHub Release v2.2.0](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.2.0). The `metadata.version` in `SKILL.md` is `2.2.0`, and the matching release/tag is `v2.2.0`.
+The current version is **2.4.3**, published as [GitHub Release v2.4.3](https://github.com/filtalgo/Filtmall-Shopping-Skill/releases/tag/v2.4.3). The `metadata.version` in `SKILL.md` is `2.4.3`, and the matching release/tag is `v2.4.3`.
 
 ## Installation
 
@@ -57,22 +57,22 @@ The Skill submits requests through Control's public guest and session APIs, pres
 The recommended approach is single-call mode, with one line of JSON passed through standard input:
 
 ```bash
-python3 "<skill-dir>/scripts/service.py" --once --format widget
+python3 "<skill-dir>/scripts/service.py" --once
 ```
 
 ```json
-{"conversation":"<host-generated conversation ID>","text":"Recommend face masks that cost no more than CNY 100. Search only."}
+{"conversation":"<host-generated conversation ID>","text":"Recommend face masks that cost no more than CNY 100. Search only.","host":"workbuddy"}
 ```
 
-The host should generate a separate identifier for each user and conversation, and reuse it when continuing the conversation. Choose `format` as `widget` (inline HTML), `html` (standalone page), or `md` (Markdown); the same format applies to product cards and cart snapshots. Results contain `answer_file` for response text, `fragment_file`, `page_file`, or `html_file` for product cards, and `cart_file` for the current turn's cart. HTML modes also return `cart_fragment_file` or `cart_page_file`. `cart_status` is `current` or `unavailable`; when unavailable, check the cart before repeating a write operation. The host must be able to access these files and read them as UTF-8. Fields are omitted when the corresponding content is unavailable.
+The host should generate a separate identifier for each user and conversation, and reuse it when continuing the conversation. The optional `host` field accepts `today`, `workbuddy`, `doubao`, `qianwen`, or `lingguang` and selects the display format; omit it to use the default. Choose `format` as `widget` (inline HTML), `html` (standalone page), or `md` (Markdown, the default); the same format applies to product cards and cart snapshots, and a recognized host determines it. Results contain `display_file` for the turn's Markdown response, `answer_file` for response text, `fragment_file`, `page_file`, or `html_file` for product cards, and `cart_file` for the current turn's cart. HTML modes also return `cart_fragment_file` or `cart_page_file`. `cart_status` is `current` or `unavailable`; when unavailable, check the cart before repeating a write operation. The host must be able to access these files and read them as UTF-8. Fields are omitted when the corresponding content is unavailable.
 
 ### Choose a display format
 
 | Use case | Request parameter | Product artifact | Cart artifact |
 | --- | --- | --- | --- |
-| Embed in a chat or host interface | `"format":"widget"` (default) | `fragment_file`, an HTML fragment | `cart_fragment_file`, an HTML fragment |
+| Embed in a chat or host interface | `"format":"widget"` | `fragment_file`, an HTML fragment | `cart_fragment_file`, an HTML fragment |
 | Open a standalone page in a browser or WebView | `"format":"html"` | `page_file`, a complete HTML page | `cart_page_file`, a complete HTML page |
-| Display Markdown or text | `"format":"md"` | `html_file`, a `.cards.md` file | `cart_file`, a `.cart.md` file |
+| Display Markdown or text (default) | `"format":"md"` | `html_file`, a `.cards.md` file | `cart_file`, a `.cart.md` file |
 
 The format applies to products, carts, checkouts, and after-sales results; response text remains in `answer_file`. Checkout results use `checkout_file`, and after-sales results use `after_sale_file`. In `widget` mode, the corresponding aliases are `checkout_fragment_file` and `after_sale_fragment_file`; in `html` mode, they are `checkout_page_file` and `after_sale_page_file`. In `md` mode, read the respective Markdown files directly. Business documents can produce files without response text, and multiple objects share the corresponding business file. Only documents from the current turn are used. Standalone pages use the same cards as inline fragments, without an extra page heading or status sidebar.
 
@@ -115,6 +115,8 @@ The service checks the latest stable GitHub Release before each valid send. It r
 SKILL.md                 # Host invocation and interaction rules
 references/protocol.md   # Control public session protocol
 scripts/service.py       # Entry point for single-call and persistent service modes
+scripts/hosts.py         # Host enum and display policy
+scripts/link_response.py # Dual H5 / mini-program links in Markdown
 scripts/client.py        # Identity, sessions, and request recovery
 scripts/cards.py         # Product card rendering
 scripts/commerce_render.py # Cart, checkout, and after-sales rendering
