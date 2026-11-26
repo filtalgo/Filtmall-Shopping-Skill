@@ -37,7 +37,7 @@ def safe_url(value, origins, origin_only=False):
         hostname = '[' + hostname + ']' if ':' in hostname else hostname
         origin = 'https://' + hostname + (':' + str(p.port) if p.port not in (None, 443) else '')
         if origin_only: return value == origin
-        if origin not in origins: return False
+        if origins is not None and origin not in origins: return False
         forbidden = {'access_token', 'refresh_token', 'token', 'authorization', 'api_key', 'password', 'client_secret'}
         return not any(k.lower() in forbidden for k, _ in parse_qsl(p.query, keep_blank_values=True, encoding='utf-8', errors='strict'))
     except (ValueError, UnicodeError): return False
@@ -61,13 +61,16 @@ def _validate(v):
     if v['query'] is not None and group_key(v['query']) is None: return False
     if v['status'] != 'current':
         return (v['status'] in ('unavailable', 'authorization_required') and v['entry'] is None and v['fetched_at'] is None and not AUTH.intersection(v) and v['reason'] in (None, 'query_failed', 'invalid_data', 'payload_too_large', 'no_entry') and (v['reason'] != 'no_entry' or v['status'] == 'unavailable'))
-    if not AUTH <= set(v) or v['reason'] is not None or v['query'] is None: return False
-    if not isinstance(v['authorization_binding'], str) or not re.fullmatch('[0-9a-f]{64}', v['authorization_binding']): return False
-    for k in ('fetched_at', 'authorization_expires_at'):
-        if type(v[k]) is not int or not 0 < v[k] <= 253402300799999: return False
-    if v['authorization_expires_at'] <= time.time()*1000: return False
-    origins = v['link_origins']
-    if not isinstance(origins, list) or not 1 <= len(origins) <= 2 or any(not safe_url(o, [], True) for o in origins) or len(set(origins)) != len(origins): return False
+    if v['reason'] is not None or v['query'] is None: return False
+    if type(v['fetched_at']) is not int or not 0 < v['fetched_at'] <= 253402300799999: return False
+    origins = None
+    if AUTH.intersection(v):
+        if not AUTH <= set(v): return False
+        if not isinstance(v['authorization_binding'], str) or not re.fullmatch('[0-9a-f]{64}', v['authorization_binding']): return False
+        if type(v['authorization_expires_at']) is not int or not 0 < v['authorization_expires_at'] <= 253402300799999: return False
+        if v['authorization_expires_at'] <= time.time()*1000: return False
+        origins = v['link_origins']
+        if not isinstance(origins, list) or not 1 <= len(origins) <= 2 or any(not safe_url(o, [], True) for o in origins) or len(set(origins)) != len(origins): return False
     e = v['entry']; q = v['query']
     if not isinstance(e, dict) or set(e) != {'scene', *IDS, 'store_name', 'default_channel', 'channels'}: return False
     if e['scene'] != q['scene'] or any(not text(e[k], 256, k == 'store_id') for k in IDS) or not text(e['store_name'], 2048): return False

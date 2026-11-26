@@ -35,12 +35,13 @@ def validate(value):
     if 'has_more' not in page or (page['has_more'] is not None and type(page['has_more']) is not bool): return False
     if not isinstance(items, list) or len(items) > 100: return False
     if status != 'current': return not items and selected is None
-    expires = value.get('authorization_expires_at')
-    binding = value.get('authorization_binding')
-    if not isinstance(binding, str) or not re.fullmatch(r'[0-9a-f]{64}', binding): return False
-    # Compare integer bounds before float conversion: JSON may contain huge ints.
-    if type(expires) not in (int, float) or not 0 < expires <= 9007199254740991: return False
-    if not math.isfinite(expires) or expires <= time.time()*1000: return False
+    if 'authorization_binding' in value or 'authorization_expires_at' in value:
+        expires = value.get('authorization_expires_at')
+        binding = value.get('authorization_binding')
+        if not isinstance(binding, str) or not re.fullmatch(r'[0-9a-f]{64}', binding): return False
+        # Compare integer bounds before float conversion: JSON may contain huge ints.
+        if type(expires) not in (int, float) or not 0 < expires <= 9007199254740991: return False
+        if not math.isfinite(expires) or expires <= time.time()*1000: return False
     seen = set()
     for item in items:
         if not isinstance(item, dict) or set(item) != {'address_id', 'recipient_name', 'mobile_display', 'region_path', 'detail', 'is_default'}: return False
@@ -91,7 +92,7 @@ def markdown(value):
 def display_snapshot(values):
     """Choose one complete trusted snapshot; never join selected IDs to another list."""
     current = [v for v in values if v['status'] == 'current']
-    if len({v['authorization_binding'] for v in current}) > 1:
+    if len({v.get('authorization_binding') for v in current}) > 1:
         return unavailable(), ['地址信息需要重新查询确认。']
     books = [v for v in current if v['scene'] == 'address_book']
     checkouts = [v for v in values if v['scene'] == 'checkout']

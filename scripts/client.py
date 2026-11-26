@@ -19,6 +19,16 @@ import logistics_cards
 import customer_service_cards
 
 
+OAUTH_CHALLENGE_KIND = 'oauth_challenge'
+
+
+def _valid_oauth_session_path(path, suffix=''):
+    if not isinstance(path, str) or '..' in path or '\\' in path:
+        return False
+    pattern = r'^/api/v2/sessions/[^/?#]+/oauth/[a-z0-9][a-z0-9_.-]{0,127}' + re.escape(suffix) + r'$'
+    return bool(re.fullmatch(pattern, path))
+
+
 class ClientError(Exception):
     def __init__(self, code, message):
         super().__init__(message)
@@ -405,16 +415,15 @@ class Client:
                 return None
             pending = dict(pending)
         if pending.get('completion_verified') is True:
-            return self.finish_authorization(key, pending['id'], {'id': pending.get('completed_delegation_id')})
+            return self.finish_authorization(key, pending['id'])
         if pending['expires_at'] <= time.time() * 1000:
             if pending.get('poll_attempted'):
-                recovered = self.recover_authorization_completion(pending)
-                if recovered is not None:
-                    return self.finish_authorization(key, pending['id'], recovered)
-                path = '/api/v2/delegations/authorization-requests/' + parse.quote(pending['id'], safe='')
-                status = self.api('GET', path)
-                if isinstance(status, dict) and status.get('status') == 'completed' and status.get('delegation_id'):
-                    return self.finish_authorization(key, pending['id'], {'id': status['delegation_id']})
+                try:
+                    final = self.api('POST', pending['poll_path'], {'exchange': pending['exchange']})
+                except ClientError:
+                    final = None
+                if isinstance(final, dict) and final.get('status') == 'active':
+                    return self.finish_authorization(key, pending['id'])
             with self.store.locked() as state:
                 conversation = state['conversations'].get(key) or {}
                 if conversation.get('authorization', {}).get('id') == pending['id']:
@@ -423,33 +432,22 @@ class Client:
             raise ClientError('AUTHORIZATION_EXPIRED', '授权已过期，请重新发起业务请求获取新链接。')
         if pending.get('next_poll_at', 0) > time.time() * 1000:
             return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': pending['url'], 'message': '请先完成商城授权，再用 resume 恢复原请求。'}
-        path = '/api/v2/delegations/authorization-requests/' + parse.quote(pending['id'], safe='')
         with self.store.locked() as state:
             current = (state['conversations'].get(key) or {}).get('authorization')
             if current and current.get('id') == pending['id']:
                 current['poll_attempted'] = True
                 self.store.save(state)
         try:
-            result = self.api('POST', path + '/device/poll', {'state': pending['state'], 'exchange': pending['exchange']})
+            result = self.api('POST', pending['poll_path'], {'exchange': pending['exchange']})
         except ClientError as exc:
-            if exc.code not in ('HTTP_401', 'HTTP_409', 'IDENTITY_EXPIRED'):
-                raise
-            recovered = self.recover_authorization_completion(pending)
-            if recovered is not None:
-                return self.finish_authorization(key, pending['id'], recovered)
-            if exc.code != 'HTTP_409':
-                raise ClientError('AUTHORIZATION_UNCERTAIN', '授权响应尚未恢复，请保留状态后重试 resume。') from None
-            status = self.api('GET', path)
-            if not isinstance(status, dict) or status.get('status') != 'completed' or not status.get('delegation_id'):
-                if not isinstance(status, dict) or status.get('status') not in ('expired', 'denied', 'revoked', 'cancelled'):
-                    raise ClientError('AUTHORIZATION_UNCERTAIN', '授权状态尚未确认，请稍后重试；如已明确拒绝授权，可执行 auth-reset 后重新发起。') from None
+            if exc.code in ('HTTP_403', 'HTTP_404', 'HTTP_409'):
                 with self.store.locked() as state:
                     conversation = state['conversations'].get(key) or {}
                     if conversation.get('authorization', {}).get('id') == pending['id']:
                         conversation.pop('authorization', None)
                         self.store.save(state)
                 raise ClientError('AUTHORIZATION_FAILED', '授权已失效或被拒绝，请重新发起业务请求。') from None
-            result = {'status': 'active', 'id': status['delegation_id']}
+            raise
         if not isinstance(result, dict):
             raise ClientError('INVALID_RESPONSE', '授权状态响应无效。')
         if result.get('status') in ('authorization_pending', 'slow_down'):
@@ -476,40 +474,31 @@ class Client:
                     current['next_poll_at'] = int(time.time() * 1000) + pending['interval'] * 1000
                     self.store.save(state)
             return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': pending['url'], 'message': '请先完成商城授权，再用 resume 恢复原请求。'}
+        if result.get('status') in ('expired', 'denied'):
+            with self.store.locked() as state:
+                conversation = state['conversations'].get(key) or {}
+                if conversation.get('authorization', {}).get('id') == pending['id']:
+                    conversation.pop('authorization', None)
+                    self.store.save(state)
+            if result.get('status') == 'expired':
+                raise ClientError('AUTHORIZATION_EXPIRED', '授权已过期，请重新发起业务请求获取新链接。')
+            raise ClientError('AUTHORIZATION_FAILED', '授权已被拒绝，请重新发起业务请求。')
         if result.get('status') != 'active':
             raise ClientError('AUTHORIZATION_FAILED', '授权未完成，请重新发起业务请求。')
-        return self.finish_authorization(key, pending['id'], result)
+        return self.finish_authorization(key, pending['id'])
 
     def poll_granted(self, pending, deadline, key=None):
-        """授权可能在首次 poll 返回 pending 之后才回写；在同一个授权请求上继续轮询，
-        避免用户刚确认就被当成未授权而重建请求、丢掉已完成的授权。"""
+        """授权可能在首次 poll 返回 pending 之后才回写；在同一个授权请求上继续轮询。"""
         if deadline is None:
             return False
-        path = '/api/v2/delegations/authorization-requests/' + parse.quote(pending['id'], safe='')
         interval = pending.get('interval', 5)
         if not isinstance(interval, int) or isinstance(interval, bool) or not 1 <= interval <= 300:
             interval = 5
         while time.monotonic() + interval <= deadline:
             time.sleep(interval)
             try:
-                result = self.api('POST', path + '/device/poll',
-                                  {'state': pending['state'], 'exchange': pending['exchange']})
+                result = self.api('POST', pending['poll_path'], {'exchange': pending['exchange']})
             except ClientError as exc:
-                if exc.code in ('HTTP_401', 'HTTP_409', 'IDENTITY_EXPIRED'):
-                    recovered = self.recover_authorization_completion(pending)
-                    if recovered is not None:
-                        if key is not None:
-                            self.finish_authorization(key, pending['id'], recovered)
-                        return True
-                    try:
-                        status = self.api('GET', path)
-                    except ClientError:
-                        return False
-                    if isinstance(status, dict) and status.get('status') == 'completed' and status.get('delegation_id'):
-                        if key is not None:
-                            self.finish_authorization(key, pending['id'], {'status': 'active', 'id': status['delegation_id']})
-                        return True
-                    return False
                 if exc.code != 'HTTP_429':
                     return False
                 interval = min(interval + 5, 300)
@@ -517,8 +506,10 @@ class Client:
                 continue
             if isinstance(result, dict) and result.get('status') == 'active':
                 if key is not None:
-                    self.finish_authorization(key, pending['id'], result)
+                    self.finish_authorization(key, pending['id'])
                 return True
+            if isinstance(result, dict) and result.get('status') in ('expired', 'denied'):
+                return False
             if isinstance(result, dict) and result.get('status') in ('authorization_pending', 'slow_down'):
                 updated_interval = result.get('interval')
                 if isinstance(updated_interval, int) and not isinstance(updated_interval, bool) and 1 <= updated_interval <= 300:
@@ -527,68 +518,16 @@ class Client:
                     interval += 5
                 interval = min(interval, 300)
                 pending['interval'] = interval
-            try:
-                status = self.api('GET', path)
-            except ClientError:
-                status = None
-            if isinstance(status, dict):
-                if status.get('status') == 'completed' and status.get('delegation_id'):
-                    if key is not None:
-                        self.finish_authorization(key, pending['id'], {'status': 'active', 'id': status['delegation_id']})
-                    return True
-                if status.get('status') in ('expired', 'denied', 'revoked', 'cancelled'):
-                    return False
         return False
 
-    def recover_authorization_completion(self, pending):
-        with self.store.locked() as state:
-            auth = state.get('auth') or {}
-            proof = auth.get('access_token')
-        if not proof:
-            return None  # compatibility with older platform deployments
-        path = '/api/v2/delegations/authorization-requests/' + parse.quote(pending['id'], safe='') + '/completion'
-        try:
-            # A merge revokes the guest for ordinary APIs. Use its original proof
-            # only at the receipt endpoint; do not refresh it or create a guest.
-            result = self.http('POST', path, {'state': pending['state']}, token=proof)
-        except ClientError as exc:
-            if exc.code in ('HTTP_404', 'HTTP_409'):
-                return None
-            raise
-        if not isinstance(result, dict) or result.get('status') != 'active' or not isinstance(result.get('platform_tokens'), dict):
-            raise ClientError('INVALID_IDENTITY', '授权完成凭据无效，保留原授权状态。')
-        return result
-
-    @staticmethod
-    def platform_completion_tokens(result):
-        if not isinstance(result, dict) or 'platform_tokens' not in result:
-            return None
-        value = result['platform_tokens']
-        if not isinstance(value, dict):
-            raise ClientError('INVALID_IDENTITY', '授权完成凭据无效，保留原授权状态。')
-        fields = ('access_token', 'refresh_token', 'principal_id', 'credential_session_id')
-        if any(not isinstance(value.get(k), str) or not value[k] or len(value[k]) > 4096 or value[k].strip() != value[k] for k in fields):
-            raise ClientError('INVALID_IDENTITY', '授权完成凭据不完整，保留原授权状态。')
-        now = time.time() * 1000
-        if any(type(value.get(k)) is not int or value[k] <= now for k in ('access_expires_at', 'refresh_expires_at')):
-            raise ClientError('INVALID_IDENTITY', '授权完成凭据已失效，保留原授权状态。')
-        return {k: value[k] for k in fields + ('access_expires_at', 'refresh_expires_at')}
-
-    def finish_authorization(self, key, identifier, result=None):
-        tokens = self.platform_completion_tokens(result)
+    def finish_authorization(self, key, identifier):
         with self.store.locked() as state:
             conversation = state['conversations'].get(key) or {}
             if conversation.get('authorization', {}).get('id') != identifier:
                 return None
             overlapping = bool(conversation.get('pending'))
             if overlapping:
-                # A merged guest cannot inspect ordinary APIs until its new
-                # platform identity is persisted. Keep both recovery records.
-                if tokens is not None:
-                    state['auth'] = tokens
                 conversation['authorization']['completion_verified'] = True
-                if isinstance(result, dict) and isinstance(result.get('id'), str):
-                    conversation['authorization']['completed_delegation_id'] = result['id']
                 self.store.save(state)
         if overlapping:
             self.reconcile_authorization_input(key, identifier)
@@ -597,10 +536,9 @@ class Client:
             if conversation.get('authorization', {}).get('id') == identifier:
                 if conversation.get('pending'):
                     raise ClientError('PENDING_INPUT', '原请求仍在核对，请保留授权状态并稍后 resume。')
-                if tokens is not None:
-                    state['auth'] = tokens
-                if isinstance(result, dict) and isinstance(result.get('id'), str):
-                    conversation['delegation_id'] = result['id']
+                revoke_path = conversation['authorization'].get('revoke_path')
+                if isinstance(revoke_path, str) and revoke_path:
+                    conversation['oauth_revoke_path'] = revoke_path
                 conversation.pop('authorization', None)
                 conversation['last_status'] = 'authorization_completed'
                 if conversation.get('last_request_id'):
@@ -627,9 +565,6 @@ class Client:
         if bound is not None and bound != request_id:
             raise ClientError('AUTHORIZATION_UNCERTAIN', '待核对输入不属于本次授权，保留状态。')
         if bound is None:
-            # Older files can contain a challenge saved just before settle.
-            # Prove that it belongs to this waiting request; never discard an
-            # unrelated input just because another authorization completed.
             response = self.result(value) or {}
             status = (response.get('execution_result') or {}).get('operation_status')
             baseline = pending.get('start_revision')
@@ -637,12 +572,13 @@ class Client:
                 raise ClientError('AUTHORIZATION_UNCERTAIN', '原输入尚未确认因授权暂停，保留状态。')
             documents = self.documents(value['id'], request_id, baseline)
             matched = any(
-                doc.get('kind') in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')
+                doc.get('kind') == OAUTH_CHALLENGE_KIND
                 and doc.get('schema_version') == 1 and doc.get('request_id') in (None, request_id)
                 and type(doc.get('revision')) is int and doc['revision'] > baseline
                 and isinstance(doc.get('value'), dict)
-                and doc['value'].get('id') == identifier
-                and doc['value'].get('state') == authorization.get('state')
+                and (doc.get('document_id') == identifier
+                     or (str(doc['value'].get('provider_id')) + ':' + str(doc['value'].get('tool_name') or 'oauth')) == identifier)
+                and doc['value'].get('poll_path') == authorization.get('poll_path')
                 for doc in documents
             )
             if not matched:
@@ -663,17 +599,31 @@ class Client:
 
     def _start_authorization_locked(self, key, doc):
         with self.store.locked() as local:
-            existing = (local['conversations'].get(key) or {}).get('authorization')
+            conversation_snapshot = local['conversations'].get(key)
+            existing = (conversation_snapshot or {}).get('authorization')
             if existing and existing.get('expires_at', 0) > time.time() * 1000:
                 return {'ok': True, 'status': 'authorization_required', 'conversation': key, 'authorization_url': existing['url'], 'message': '请打开链接完成商城授权，然后用 resume 恢复原请求。'}
+            session_id = (conversation_snapshot or {}).get('id')
         value = doc.get('value')
-        if not isinstance(value, dict) or value.get('provider') != 'filtmall':
+        if doc.get('kind') != OAUTH_CHALLENGE_KIND or not isinstance(value, dict):
             raise ClientError('INVALID_AUTHORIZATION', '授权请求无效。')
-        identifier, state_value = value.get('id'), value.get('state')
-        if not isinstance(identifier, str) or not identifier or not isinstance(state_value, str) or not state_value:
+        provider_id = value.get('provider_id')
+        device_path = value.get('device_path')
+        poll_path = value.get('poll_path')
+        revoke_path = value.get('revoke_path')
+        raw_scopes = value.get('scopes', [])
+        if (not isinstance(provider_id, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,127}', provider_id)
+                or not _valid_oauth_session_path(device_path, '/device')
+                or not _valid_oauth_session_path(poll_path, '/device/poll')
+                or (revoke_path is not None and not _valid_oauth_session_path(revoke_path, ''))
+                or not isinstance(raw_scopes, list)):
             raise ClientError('INVALID_AUTHORIZATION', '授权请求不完整。')
-        path = '/api/v2/delegations/authorization-requests/' + parse.quote(identifier, safe='') + '/device'
-        result = self.api('POST', path, {'state': state_value})
+        if isinstance(session_id, str) and session_id:
+            expected_prefix = self.path(session_id, '/oauth/' + parse.quote(provider_id, safe=''))
+            if not device_path.startswith(expected_prefix + '/') or not poll_path.startswith(expected_prefix + '/'):
+                raise ClientError('INVALID_AUTHORIZATION', '授权挑战会话路径不匹配。')
+        identifier = doc.get('document_id') if isinstance(doc.get('document_id'), str) and doc.get('document_id') else (provider_id + ':' + str(value.get('tool_name') or 'oauth'))
+        result = self.api('POST', device_path, {'scopes': []})
         if not isinstance(result, dict):
             raise ClientError('INVALID_AUTHORIZATION', '授权接口响应无效。')
         url = result.get('verification_uri_complete'); parsed = parse.urlsplit(url) if isinstance(url, str) else None
@@ -695,7 +645,18 @@ class Client:
             interval = result.get('interval', 5)
             if not isinstance(interval, int) or isinstance(interval, bool) or not 1 <= interval <= 300:
                 interval = 5
-            conversation['authorization'] = {'id': identifier, 'state': state_value, 'exchange': result['exchange'], 'expires_at': result['expires_at'], 'url': url, 'interval': interval, 'next_poll_at': int(time.time() * 1000) + interval * 1000}
+            conversation['authorization'] = {
+                'id': identifier,
+                'provider_id': provider_id,
+                'device_path': device_path,
+                'poll_path': poll_path,
+                'revoke_path': revoke_path if isinstance(revoke_path, str) else None,
+                'exchange': result['exchange'],
+                'expires_at': result['expires_at'],
+                'url': url,
+                'interval': interval,
+                'next_poll_at': int(time.time() * 1000) + interval * 1000,
+            }
             if pending:
                 conversation['authorization']['for_request_id'] = pending['request_id']
                 conversation['last_request_id'] = pending['request_id']
@@ -762,9 +723,9 @@ class Client:
                         texts.append(public['content'])
             if texts:
                 answer = {'kind': 'filtalgo.shopping.text', 'schema_version': 1, 'source': 'current-turn-public-text', 'value': {'content': '\n\n'.join(texts)}}
-        context = [d for d in docs if str(d.get('kind', '')).startswith('filtalgo.shopping.block:') or d.get('kind') in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')]
+        context = [d for d in docs if str(d.get('kind', '')).startswith('filtalgo.shopping.block:') or d.get('kind') == OAUTH_CHALLENGE_KIND]
         baseline = value['pending'].get('start_revision')
-        challenges = [d for d in context if d.get('kind') in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization') and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
+        challenges = [d for d in context if d.get('kind') == OAUTH_CHALLENGE_KIND and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
         challenges.sort(key=lambda d: d['revision'])
         authorization = self.start_authorization(key, challenges[-1]) if status == 'waiting' and challenges else None
         selectors = [d for d in docs if d.get('kind') == 'filtalgo.commerce.region_selector' and d.get('schema_version') == 1 and d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
@@ -825,7 +786,7 @@ class Client:
                 safe = logistics_cards.unavailable()
                 if type(document.get('schema_version')) is int and document['schema_version'] == 1 and logistics_cards.validate(public):
                     safe = {k: public[k] for k in ('status', 'query', 'fetched_at', 'empty_reason', 'reason', 'packages')}
-                    if public['status'] == 'current':
+                    if public['status'] == 'current' and 'authorization_binding' in public:
                         safe.update({k: public[k] for k in ('authorization_binding', 'authorization_expires_at')})
                 result['logistics_snapshots'].append(safe)
         addresses = {}
@@ -850,7 +811,9 @@ class Client:
                 safe = address_cards.unavailable(scene, way)
                 if type(document.get('schema_version')) is int and document['schema_version'] in (1, 2) and address_cards.validate(public):
                     if public['status'] == 'current':
-                        safe = {k: public[k] for k in ('status', 'scene', 'way', 'selection_status', 'selected_address_id', 'page', 'items', 'authorization_binding', 'authorization_expires_at')}
+                        safe = {k: public[k] for k in ('status', 'scene', 'way', 'selection_status', 'selected_address_id', 'page', 'items')}
+                        if 'authorization_binding' in public:
+                            safe.update({k: public[k] for k in ('authorization_binding', 'authorization_expires_at')})
                     else:
                         safe['status'] = public['status']
                 result['address_snapshots'].append(safe)
@@ -892,7 +855,7 @@ class Client:
         if status == 'completed' and selector_errors and not selectors:
             result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'REGION_SELECTOR_UNAVAILABLE', 'message': '地区选择器暂时不可用，请稍后重试。'}})
         current_context = [d for d in context if d.get('request_id') in (None, request_id) and isinstance(baseline, int) and isinstance(d.get('revision'), int) and d['revision'] > baseline]
-        result['context_documents'] = [d for d in current_context if d.get('kind') not in ('filtalgo.shopping.authorization', 'filtalgo.commerce.authorization')]
+        result['context_documents'] = [d for d in current_context if d.get('kind') != OAUTH_CHALLENGE_KIND]
         if status == 'completed' and not answer and not current_context and not selectors and not selector_errors and not any(k in result for k in ('cart', 'address_snapshots', 'logistics_snapshots', 'customer_service_snapshots')) and not any(result.get(k) for k in ('checkouts', 'after_sales', 'after_sale_lists')):
             result.update({'ok': False, 'presentation_status': 'failed', 'error': {'code': 'NO_PUBLIC_RESPONSE', 'message': '本轮没有可展示的结果，请稍后重试。'}})
         with self.store.locked() as state:
@@ -946,14 +909,20 @@ class Client:
 
     def revoke_authorization(self, key):
         value = self.conversation(key)
-        identifier = value.get('delegation_id')
-        if not isinstance(identifier, str) or not identifier:
+        revoke_path = value.get('oauth_revoke_path')
+        if not isinstance(revoke_path, str) or not revoke_path:
             raise ClientError('NO_DELEGATION', '当前本地会话没有可撤销的已完成授权。')
-        self.api('DELETE', '/api/v2/delegations/' + parse.quote(identifier, safe=''))
+        if not _valid_oauth_session_path(revoke_path, ''):
+            raise ClientError('INVALID_AUTHORIZATION', '可撤销授权路径无效。')
+        self.api('DELETE', revoke_path)
+        provider_suffix = '/oauth/' + revoke_path.rsplit('/oauth/', 1)[-1]
         with self.store.locked() as state:
             for conversation in state['conversations'].values():
-                if conversation.get('delegation_id') == identifier:
-                    conversation.pop('delegation_id', None)
+                saved = conversation.get('oauth_revoke_path')
+                if isinstance(saved, str) and saved.endswith(provider_suffix):
+                    conversation.pop('oauth_revoke_path', None)
+                auth = conversation.get('authorization') or {}
+                if isinstance(auth.get('revoke_path'), str) and auth['revoke_path'].endswith(provider_suffix):
                     conversation.pop('authorization', None)
             self.store.save(state)
         return {'ok': True, 'status': 'authorization_revoked', 'conversation': key}

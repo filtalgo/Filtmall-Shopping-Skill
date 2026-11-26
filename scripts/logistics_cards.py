@@ -70,8 +70,9 @@ def validate(value):
         return (not packages and value.get('fetched_at') is None and value.get('empty_reason') is None
                 and 'authorization_binding' not in value and 'authorization_expires_at' not in value)
     if query is None or value.get('reason') is not None or not integer(value.get('fetched_at'), 1) or value['fetched_at'] > 253402300799999: return False
-    if not integer(value.get('authorization_expires_at'), 1) or value['authorization_expires_at'] <= time.time()*1000: return False
-    if not isinstance(value.get('authorization_binding'), str) or not re.fullmatch('[0-9a-f]{64}', value['authorization_binding']): return False
+    if 'authorization_binding' in value or 'authorization_expires_at' in value:
+        if not integer(value.get('authorization_expires_at'), 1) or value['authorization_expires_at'] <= time.time()*1000: return False
+        if not isinstance(value.get('authorization_binding'), str) or not re.fullmatch('[0-9a-f]{64}', value['authorization_binding']): return False
     expected_empty = None if packages else 'no_packages' if query['package_no'] is None else 'package_not_found'
     if value.get('empty_reason') != expected_empty: return False
     ids = set(); nodes = 0
